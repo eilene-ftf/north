@@ -279,15 +279,16 @@ with model:
     nengo.Connection(latch_node, t_gate_node[2*d])
     nengo.Connection(t_gate_node, T_state.input, synapse=0.01)
     
-    def gate_output(t, x):
-        H_vec = x[0:d]
-        cond = x[d]
-        return H_vec if cond > 0.5 else np.zeros(d)
+    #def gate_output(t, x):
+    #    H_vec = x[0:d]
+    #    cond = x[d]
+    #    return H_vec if cond > 0.5 else np.zeros(d)
     
-    gate_node_output = nengo.Node(gate_output, size_in=d+1, size_out=d)
-    nengo.Connection(H_state.output, gate_node_output[0:d])
-    nengo.Connection(condition_node, gate_node_output[d])
-    nengo.Connection(gate_node_output, output_state.input)
+    #gate_node_output = nengo.Node(gate_output, size_in=d+1, size_out=d)
+    #nengo.Connection(H_state.output, gate_node_output[0:d])
+    #nengo.Connection(condition_node, gate_node_output[d])
+    #nengo.Connection(gate_node_output, output_state.input)
+    nengo.Connection(H_state.output,output_state.input)
     
     def update_R(t, x):
         T_vec = x[0:d]
