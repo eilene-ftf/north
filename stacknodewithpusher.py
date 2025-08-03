@@ -53,10 +53,10 @@ def make_stack_out(stack):
                     state = vocab['S_CODE_ERROR'].v
         if sigout == 1 and t > stopwatch + 0.2:
             sigout = 0
+        print([p.name for p in stack])
         return np.concatenate((state, [sigout]))
     
     return stack_out
-    
 
 # An object to contain all the base symbols in both their string and
 # holographic vector representations
@@ -230,6 +230,9 @@ class Pusher(spa.Network):
             self.condition_output = nengo.Node(size_in=1, label="condition_flag")
             self.head_output = output_state
             
+            def cleanup_node(t, x, vocab=self.voc):
+                return cleanup(x, vocab=voc).v
+            
             def gate_transmission(t,x):
                 return x if t < 1.0 else np.zeros(self.d)
                 
@@ -257,7 +260,10 @@ class Pusher(spa.Network):
                 label="tail_dereference"
             )
             
-            nengo.Connection(noisy_h.output, H_state.input)
+            head_cleanup = nengo.Node(size_in=d, size_out=d, output=cleanup_node, label="head_cleanup")
+            
+            nengo.Connection(noisy_h.output, head_cleanup)
+            nengo.Connection(head_cleanup, H_state.input)
             nengo.Connection(noisy_t.output, tail_cleanup)
             nengo.Connection(tail_cleanup, T_state.input)
             
@@ -367,6 +373,8 @@ class Pusher(spa.Network):
             nengo.Connection(R_state.output, gate_node_R[self.d:2*self.d], synapse=0.01)
             nengo.Connection(condition_node, gate_node_R[2*self.d])
             nengo.Connection(gate_node_R, R_state.input, synapse=0.05)
+            
+
 
 
 def create_modification_node(vocab, theta=0.2):
@@ -383,7 +391,9 @@ def create_modification_node(vocab, theta=0.2):
         if norm_output > 1e-6 and norm_pop > 1e-6:
             cos_sim = np.dot(output_vec, pop_vec) / (norm_output * norm_pop)
         
-        if cos_sim > theta:
+        if output_vec @ output_vec < theta: 
+            return vocab['Zero'].v
+        elif cos_sim > theta:
             return pop_vec
         else:
             combined = push_vec + output_vec
