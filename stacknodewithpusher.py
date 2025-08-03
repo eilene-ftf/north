@@ -208,12 +208,13 @@ def dereference(t, x):
     return cleanup(spa.SemanticPointer(x), vocab=voc).v            
             
 class Pusher(spa.Network):
-    def __init__(self, d=128, theta=0.2, items=None, label="Pusher"):
+    def __init__(self, d=128, theta=0.2, items=None, label="Pusher", voc=spa.Vocabulary(d)):
         super().__init__(label="Pusher")
         self.d = d
         self.theta = theta
-        self.voc = spa.Vocabulary(d)
-        self.voc.populate("LEFT; RIGHT; PHI; NIL")
+        self.voc = voc
+        to_add = [l for l in ['LEFT', 'RIGHT', 'PHI', 'NIL'] if l not in voc]
+        voc.populate(';'.join(to_add))
         self.assoc_memory = SimpleAssoc(theta=theta)
         
         self.vector_numbers = items.v
@@ -417,7 +418,7 @@ with model:
     nengo.Connection(stack_out[:d], out.input)
     nengo.Connection(stack_out[d], sigout)
     
-    pusher = Pusher(d=d, theta=theta, items=lis, label="Pusher Network") #Into this
+    pusher = Pusher(d=d, theta=theta, items=lis, label="Pusher Network", voc=voc) #Into this
     
     mod_node = nengo.Node(
         create_modification_node(voc, theta=theta),
