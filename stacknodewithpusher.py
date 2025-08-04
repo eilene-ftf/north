@@ -8,8 +8,6 @@ theta = 0.2     # threshold parameter
 d = 128         # dimensionality
 voc = spa.Vocabulary(d)
 
-s = []
-
 def make_stack_in(stack):
     stopwatch = 0
     state = 0
@@ -406,6 +404,7 @@ def create_modification_node(vocab, theta=0.2):
 
 model = spa.Network()
 with model:
+    stack = []
     voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; S_CODE_ERROR")
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"])) #Putting  this
@@ -419,8 +418,8 @@ with model:
     inp = spa.State(voc)
     out = spa.State(voc)
     
-    stack_in = nengo.Node(size_in=d+1, output=make_stack_in(s))
-    stack_out = nengo.Node(size_in=d+1, output=make_stack_out(s))
+    stack_in = nengo.Node(size_in=d+1, output=make_stack_in(stack))
+    stack_out = nengo.Node(size_in=d+1, output=make_stack_out(stack))
     
     nengo.Connection(inp.output, stack_in[:d])
     nengo.Connection(sigin, stack_in[d])
