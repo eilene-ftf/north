@@ -15,6 +15,8 @@ def make_stack_in(stack):
     
     def stack_in(t, x, vocab=voc):
         nonlocal stopwatch, state, out
+        if t < 0.1:
+            del stack[:]
         sig = x[d]
         inp = spa.SemanticPointer(x[:d])
         if state == 0 and sig > 1-theta:
