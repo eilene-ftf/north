@@ -226,9 +226,21 @@ class Pusher(spa.Network):
             T_state = spa.State(self.voc, label="tail_register")
             output_state = spa.State(self.voc, label="output_register")
             
+            mod_node = nengo.Node(
+                create_modification_node(voc, theta=theta),
+                size_in=voc.dimensions,
+                size_out=voc.dimensions+1,
+                label="mod_node"
+            )
+            
+            is_paused = nengo.Node(size_in=1, label="paused?")
+            nengo.Connection(mod_node[-1], is_paused)
+            
+            nengo.Connection(output_state.output, mod_node)
+            
             self.input_node = nengo.Node(output=self.vector_numbers, label="input_register")
             self.condition_output = nengo.Node(size_in=1, label="condition_flag")
-            self.head_output = output_state
+            self.head_output = mod_node[:d]
             
             def cleanup_node(t, x, vocab=self.voc):
                 return cleanup(x, vocab=voc).v
@@ -278,19 +290,21 @@ class Pusher(spa.Network):
             def compute_condition(t, x):
                 R_vec = x[0:self.d]
                 edge_detected = x[self.d]
+                pause = x[self.d + 1]
                 dot_val = np.dot(R_vec, self.voc['NIL'].v)
                 not_nil = 1.0 if dot_val < 0.9 else 0.0
-                return [not_nil * (edge_detected > 0.5)]
+                return [not_nil * (edge_detected > 0.5) * (pause < theta)]
             
             condition_node = nengo.Node(
                 compute_condition, 
-                size_in=self.d+1, 
+                size_in=self.d+2, 
                 size_out=1,
                 label="nil_detector"
             )
             nengo.Connection(R_state.output, condition_node[0:self.d])
             nengo.Connection(edge_detector.output, condition_node[self.d])
             nengo.Connection(condition_node, self.condition_output)
+            nengo.Connection(mod_node[-1], condition_node[-1])
        
             def vcos_node(t, x):
                 mag = norm(x[:self.d]) * norm(x[self.d:])
@@ -339,20 +353,22 @@ class Pusher(spa.Network):
                 new_t = x[0:self.d]
                 current_t = x[self.d:2*self.d]
                 latch = x[2*self.d]
-                if latch > 0.5:
+                pause = x[-1]
+                if latch > 0.5 or pause > theta:
                     return current_t
                 else:
                     return new_t
             
             t_gate_node = nengo.Node(
                 t_state_gate, 
-                size_in=2*self.d+1, 
+                size_in=2*self.d+2, 
                 size_out=self.d,
                 label="tail_register_gate"
             )
             nengo.Connection(tail_cleanup, t_gate_node[0:self.d])
             nengo.Connection(T_state.output, t_gate_node[self.d:2*self.d])
             nengo.Connection(latch_node, t_gate_node[2*self.d])
+            nengo.Connection(mod_node[-1], t_gate_node[-1])
             nengo.Connection(t_gate_node, T_state.input, synapse=0.01)
             
             nengo.Connection(H_state.output, output_state.input)
@@ -374,6 +390,8 @@ class Pusher(spa.Network):
             nengo.Connection(condition_node, gate_node_R[2*self.d])
             nengo.Connection(gate_node_R, R_state.input, synapse=0.05)
             
+            
+            
 
 
 
@@ -391,23 +409,27 @@ def create_modification_node(vocab, theta=0.2):
         if norm_output > 1e-6 and norm_pop > 1e-6:
             cos_sim = np.dot(output_vec, pop_vec) / (norm_output * norm_pop)
         
-        if output_vec @ output_vec < theta: 
-            return vocab['Zero'].v
+        is_word = output_vec @ vocab['WORD'].v > theta
+        to_return = vocab['Zero'].v
+        
+        if output_vec @ output_vec < theta or is_word > theta: 
+            pass
         elif cos_sim > theta:
-            return pop_vec
+            to_return = pop_vec
         else:
             combined = push_vec + output_vec
             norm_combined = np.linalg.norm(combined)
             if norm_combined > 1e-6:
                 combined /= norm_combined
-            return combined
+            to_return = combined
+        return np.concatenate((to_return, [is_word]))
     
     return modify_output
 
 model = spa.Network()
 with model:
     stack = []
-    voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; S_CODE_ERROR")
+    voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; WORD; S_CODE_ERROR")
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"])) #Putting  this
     listail1 = cons(voc["APPLE"], voc["BANANA"])
@@ -430,15 +452,9 @@ with model:
     nengo.Connection(stack_out[d], sigout)
     
     pusher = Pusher(d=d, theta=theta, items=lis, label="Pusher Network", voc=voc) #Into this
+
     
-    mod_node = nengo.Node(
-        create_modification_node(voc, theta=theta),
-        size_in=voc.dimensions,
-        size_out=voc.dimensions
-    )
-    
-    nengo.Connection(pusher.head_output.output, mod_node)
-    
-    nengo.Connection(mod_node, inp.input)
+    nengo.Connection(pusher.head_output, inp.input)
+
     
     nengo.Connection(pusher.trigger, sigin)
