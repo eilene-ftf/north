@@ -197,9 +197,10 @@ class RisingEdgeDetector(nengo.Network):
             
             nengo.Connection(self.input, self.compare, transform=2)
             nengo.Connection(self.delayed, self.compare, transform=-2)
-            nengo.Connection(nengo.Node(output=bias), self.compare)
+            nengo.Connection(nengo.Node(output=bias, label="bias"), self.compare)
             
-            self.output = self.compare   
+            self.output = nengo.Node(size_in=1)
+            nengo.Connection(self.compare, self.output)
 
 def dereference(t, x):
     closest_sp = voc._keys[np.argmax(voc.dot(x))]
@@ -228,7 +229,7 @@ class Pusher(spa.Network):
             
             mod_node = nengo.Node(
                 create_modification_node(voc, theta=theta),
-                size_in=voc.dimensions,
+                size_in=voc.dimensions+1,
                 size_out=voc.dimensions+1,
                 label="mod_node"
             )
@@ -236,11 +237,19 @@ class Pusher(spa.Network):
             is_paused = nengo.Node(size_in=1, label="paused?")
             nengo.Connection(mod_node[-1], is_paused)
             
-            nengo.Connection(output_state.output, mod_node)
+            nengo.Connection(output_state.output, mod_node[:d])
             
             self.input_node = nengo.Node(output=self.vector_numbers, label="input_register")
+            self.word_busy = nengo.Node(size_in=1, label="word_busy")
             self.condition_output = nengo.Node(size_in=1, label="condition_flag")
             self.head_output = mod_node[:d]
+            
+            # May need to be changed, seems like it might behave weirdly if 
+            # there are multiple words in a row or processing a word takes a 
+            # long time
+            resume = RisingEdgeDetector(tau=1.5, bias=0, label="resume")
+            nengo.Connection(self.word_busy, resume.input)
+            nengo.Connection(resume.output, mod_node[-1])
             
             def cleanup_node(t, x, vocab=self.voc):
                 return cleanup(x, vocab=voc).v
@@ -305,6 +314,7 @@ class Pusher(spa.Network):
             nengo.Connection(edge_detector.output, condition_node[self.d])
             nengo.Connection(condition_node, self.condition_output)
             nengo.Connection(mod_node[-1], condition_node[-1])
+            
        
             def vcos_node(t, x):
                 mag = norm(x[:self.d]) * norm(x[self.d:])
@@ -402,6 +412,7 @@ def create_modification_node(vocab, theta=0.2):
     
     def modify_output(t, x):
         output_vec = x[:d]
+        resume = x[-1] < -theta
         
         norm_output = np.linalg.norm(output_vec)
         norm_pop = np.linalg.norm(pop_vec)
@@ -422,7 +433,7 @@ def create_modification_node(vocab, theta=0.2):
             if norm_combined > 1e-6:
                 combined /= norm_combined
             to_return = combined
-        return np.concatenate((to_return, [is_word]))
+        return np.concatenate((to_return, [is_word and not resume]))
     
     return modify_output
 
@@ -431,7 +442,7 @@ with model:
     stack = []
     voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; WORD; S_CODE_ERROR")
     
-    lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"])) #Putting  this
+    lis = cons(voc['CHERRY'], cons(voc["WORD"], voc["BANANA"])) #Putting  this
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["NIL"])
     
