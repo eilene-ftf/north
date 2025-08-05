@@ -8,6 +8,7 @@ theta = 0.2     # threshold parameter
 d = 128         # dimensionality
 voc = spa.Vocabulary(d)
 
+
 def make_stack_in(stack):
     stopwatch = 0
     state = 0
@@ -110,7 +111,15 @@ class SimpleAssoc():
         else:
             return probe
 
-assoc_memory = SimpleAssoc()
+assoc = SimpleAssoc()
+
+def make_list(lis, vocab=voc, assoc_memory=assoc):
+    vector_list = vocab['NIL']
+    
+    for item in lis[::-1]:
+        vector_list = cons(vocab[item], vector_list, vocab=voc, assoc_memory=assoc_memory)
+        
+    return vector_list
 
 def normalize(x):
     mag = x.length()
@@ -133,7 +142,7 @@ def cleanup(u, vocab=voc):
         return vocab[unrolled[np.argmax(dots)][0]]
     return voc['Zero']
 
-def cons(h, t, vocab=voc, simple_assoc=assoc_memory):
+def cons(h, t, vocab=voc, assoc_memory=assoc):
 
     if is_list(t):
         if h.name not in vocab: vocab.add(h.name, h)
@@ -209,14 +218,14 @@ def dereference(t, x):
     return cleanup(spa.SemanticPointer(x), vocab=voc).v            
             
 class Pusher(spa.Network):
-    def __init__(self, d=128, theta=0.2, items=None, label="Pusher", voc=spa.Vocabulary(d)):
-        super().__init__(label="Pusher")
+    def __init__(self, d=128, theta=0.2, items=None, label="Pusher", voc=spa.Vocabulary(d), assoc_memory=assoc):
+        super().__init__(label=label)
         self.d = d
         self.theta = theta
         self.voc = voc
         to_add = [l for l in ['LEFT', 'RIGHT', 'PHI', 'NIL'] if l not in voc]
         voc.populate(';'.join(to_add))
-        self.assoc_memory = SimpleAssoc(theta=theta)
+        self.assoc_memory = assoc_memory
         
         self.vector_numbers = items.v
             
@@ -403,7 +412,29 @@ class Pusher(spa.Network):
             
             
 
-
+class SimpleStack(spa.Network):
+    def __init__(self, d=128, label="stack memory"):
+        super().__init__(label=label)
+        self.d = d
+        self.stack = []
+        
+        with self:
+            stack_in = nengo.Node(size_in=self.d+1, output=make_stack_in(self.stack), label="stack_in")
+            stack_out = nengo.Node(size_in=self.d+1, output=make_stack_out(self.stack), label="stack_out")
+            
+            self.sigin = nengo.Node(size_in=1, label="sigin")
+            self.sigout = nengo.Node(size_in=1, label="sigout")
+            
+            self.input = nengo.Node(size_in=self.d, label="input")
+            self.output = nengo.Node(size_in=self.d, label="output")
+            
+            
+            nengo.Connection(stack_in, stack_out)
+            nengo.Connection(self.sigin, stack_in[d])
+            nengo.Connection(self.input, stack_in[:d])
+            nengo.Connection(stack_out[d], self.sigout)
+            nengo.Connection(stack_out[:d], self.output)
+ 
 
 def create_modification_node(vocab, theta=0.2):
     d = vocab.dimensions
@@ -439,33 +470,28 @@ def create_modification_node(vocab, theta=0.2):
 
 model = spa.Network()
 with model:
-    stack = []
     voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; WORD; S_CODE_ERROR")
     
-    lis = cons(voc['CHERRY'], cons(voc["WORD"], voc["BANANA"])) #Putting  this
+    lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["NIL"])
     
-    voc.add(lis.name, lis.v)
+    lis2 = make_list(["CHERRY", "APPLE", "BANANA"], vocab=voc)
     
-    sigin = nengo.Node(size_in=1)
-    sigout = nengo.Node(size_in=1)
+    voc.add(lis2.name, lis2.v)
+    
     inp = spa.State(voc)
     out = spa.State(voc)
     
-    stack_in = nengo.Node(size_in=d+1, output=make_stack_in(stack))
-    stack_out = nengo.Node(size_in=d+1, output=make_stack_out(stack))
+    data_stack = SimpleStack()
     
-    nengo.Connection(inp.output, stack_in[:d])
-    nengo.Connection(sigin, stack_in[d])
-    nengo.Connection(stack_in, stack_out)
-    nengo.Connection(stack_out[:d], out.input)
-    nengo.Connection(stack_out[d], sigout)
-    
-    pusher = Pusher(d=d, theta=theta, items=lis, label="Pusher Network", voc=voc) #Into this
+    nengo.Connection(inp.output, data_stack.input)
+    nengo.Connection(data_stack.output, out.input)
+
+    pusher = Pusher(d=d, theta=theta, items=lis2, label="Pusher Network", voc=voc, assoc_memory=assoc)
 
     
     nengo.Connection(pusher.head_output, inp.input)
 
     
-    nengo.Connection(pusher.trigger, sigin)
+    nengo.Connection(pusher.trigger, data_stack.sigin)
