@@ -4,7 +4,7 @@ import numpy as np
 from numpy.linalg import norm
 from collections import UserDict
 
-theta = 0.2     # threshold parameter
+theta = 0.3     # threshold parameter
 d = 128         # dimensionality
 voc = spa.Vocabulary(d)
 
@@ -23,10 +23,10 @@ def make_stack_in(stack):
         if state == 0 and sig > 1-theta:
             state = 1
             stopwatch = t
-            if vcos(inp, vocab['PUSH']) > theta:
-                stack.append(cleanup(inp - vocab['PUSH']))
-            elif vcos(inp, vocab['POP']) > theta:
-                out = vocab['POP'].v
+            if vcos(inp, vocab['S_PUSH']) > theta:
+                stack.append(cleanup(inp - vocab['S_PUSH']))
+            elif vcos(inp, vocab['S_POP']) > theta:
+                out = vocab['S_POP'].v
         if state == 1 and sig < theta and t > stopwatch + 0.2:
             state = 0
             out = np.zeros(d)
@@ -47,7 +47,7 @@ def make_stack_out(stack):
         if sigout == 0 and sig > 1-theta:
             sigout = 1
             stopwatch = t
-            if vcos(inp, vocab['POP']) > theta:
+            if vcos(inp, vocab['S_POP']) > theta:
                 if stack:
                     state = stack.pop().v
                 else:
@@ -114,7 +114,7 @@ class SimpleAssoc():
 assoc = SimpleAssoc()
 
 def make_list(lis, vocab=voc, assoc_memory=assoc):
-    vector_list = vocab['NIL']
+    vector_list = vocab['T_NIL']
     
     for item in lis[::-1]:
         vector_list = cons(vocab[item], vector_list, vocab=voc, assoc_memory=assoc_memory)
@@ -133,7 +133,7 @@ def vcos(u, v):
     return dot/mag
 
 def is_list(u, vocab=voc):
-    return vcos(u, vocab['PHI'] + vocab['NIL']) > theta
+    return vcos(u, vocab['R_PHI'] + vocab['T_NIL']) > theta
 
 def cleanup(u, vocab=voc):
     unrolled = list(vocab.items())
@@ -147,7 +147,7 @@ def cons(h, t, vocab=voc, assoc_memory=assoc):
     if is_list(t):
         if h.name not in vocab: vocab.add(h.name, h)
         if t.name not in vocab: vocab.add(t.name, t)
-        if vcos(t, vocab['NIL']) < 0.2:
+        if vcos(t, vocab['T_NIL']) < 0.2:
             if f"Pointer_to_{t.name}" not in vocab:
                 newv = np.random.normal(size = d, scale=1/np.sqrt(d))
                 newv_name = f"Pointer_to_{t.name}"
@@ -159,18 +159,18 @@ def cons(h, t, vocab=voc, assoc_memory=assoc):
             
             
             #print(list(assoc_memory.A.reverse.items()))
-        new_sp = vocab['LEFT'] * h + vocab['RIGHT'] * t + vocab['PHI']
+        new_sp = vocab['R_LEFT'] * h + vocab['R_RIGHT'] * t + vocab['R_PHI']
         new_name = f'LS_{h.name}_{t.name.replace("Pointer_to_", "")}'
         return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
-    return cons(h, cons(t, vocab['NIL']), vocab=vocab)
+    return cons(h, cons(t, vocab['T_NIL']), vocab=vocab)
 
 def car(l, vocab=voc):
     
-    return cleanup(~vocab['LEFT'] * l, vocab=vocab)
+    return cleanup(~vocab['R_LEFT'] * l, vocab=vocab)
 
 def cdr(l, vocab=voc):
-    p = cleanup(~vocab['RIGHT'] * l, vocab=vocab)
-    if p.name == 'NIL':
+    p = cleanup(~vocab['R_RIGHT'] * l, vocab=vocab)
+    if p.name == 'T_NIL':
         return p
     sliced_name = p.name[11:]
     print(sliced_name)
@@ -179,7 +179,7 @@ def cdr(l, vocab=voc):
 def read(l, vocab=voc):
 
     lis = []
-    while vcos(l, vocab['NIL']) < theta:
+    while vcos(l, vocab['T_NIL']) < theta:
         lis.append(car(l).name)
         l = cdr(l)
     return lis
@@ -223,7 +223,7 @@ class Pusher(spa.Network):
         self.d = d
         self.theta = theta
         self.voc = voc
-        to_add = [l for l in ['LEFT', 'RIGHT', 'PHI', 'NIL'] if l not in voc]
+        to_add = [l for l in ['R_LEFT', 'R_RIGHT', 'R_PHI', 'T_NIL'] if l not in voc]
         voc.populate(';'.join(to_add))
         self.assoc_memory = assoc_memory
         
@@ -280,8 +280,8 @@ class Pusher(spa.Network):
             noisy_h = spa.State(self.voc, label="noisy_head")
             noisy_t = spa.State(self.voc, label="noisy_tail")
             
-            (~self.voc['LEFT'] * R_state) >> noisy_h
-            (~self.voc['RIGHT'] * R_state) >> noisy_t
+            (~self.voc['R_LEFT'] * R_state) >> noisy_h
+            (~self.voc['R_RIGHT'] * R_state) >> noisy_t
             
             tail_cleanup = nengo.Node(
                 dereference, 
@@ -309,7 +309,7 @@ class Pusher(spa.Network):
                 R_vec = x[0:self.d]
                 edge_detected = x[self.d]
                 pause = x[self.d + 1]
-                dot_val = np.dot(R_vec, self.voc['NIL'].v)
+                dot_val = np.dot(R_vec, self.voc['T_NIL'].v)
                 not_nil = 1.0 if dot_val < 0.9 else 0.0
                 return [not_nil * (edge_detected > 0.5) * (pause < theta)]
             
@@ -438,8 +438,8 @@ class SimpleStack(spa.Network):
 
 def create_modification_node(vocab, theta=0.2):
     d = vocab.dimensions
-    pop_vec = vocab["POP"].v
-    push_vec = vocab["PUSH"].v
+    pop_vec = vocab["S_POP"].v
+    push_vec = vocab["S_PUSH"].v
     
     def modify_output(t, x):
         output_vec = x[:d]
@@ -470,11 +470,39 @@ def create_modification_node(vocab, theta=0.2):
 
 model = spa.Network()
 with model:
-    voc.populate("LEFT; RIGHT; PHI; NIL; APPLE; BANANA; CHERRY; PUSH; POP; WORD; S_CODE_ERROR")
+    kws = """Keywords:
+        :           F_FUNC
+        ;           F_END
+        >r          F_PUSHRET
+        swap        F_SWAP
+        @           F_PEEP
+        rot         F_ROT
+        -           F_SUB
+        dup         F_DUP
+        !           F_PUT
+        r>          F_POPRET
+        0<          F_ISNEG
+        if          F_IF
+        else        F_ELSE
+        drop        F_DROP
+        then        F_THEN
+        execute     F_EXEC
+    """
+    
+    print([kw[20:] for kw in kws.split("\n")[1:]])
+    
+    voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
+                 "APPLE", "BANANA", "CHERRY",
+                 "S_PUSH", "S_POP", "S_CODE_ERROR", "S_GO",
+                 'F_FUNC', 'F_END', 'F_PUSHRET', 'F_SWAP', 
+                 'F_PEEP', 'F_ROT', 'F_SUB', 'F_DUP', 
+                 'F_PUT', 'F_POPRET', 'F_ISNEG', 
+                 'F_IF', 'F_ELSE', 'F_DROP', 'F_THEN', 'F_EXEC',]
+    voc.populate("; ".join(voc_items))
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
     listail1 = cons(voc["APPLE"], voc["BANANA"])
-    listail2 = cons(voc["BANANA"],voc["NIL"])
+    listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
     lis2 = make_list(["CHERRY", "APPLE", "BANANA"], vocab=voc)
     
@@ -495,3 +523,11 @@ with model:
 
     
     nengo.Connection(pusher.trigger, data_stack.sigin)
+    
+    vnode = nengo.Node(size_in=d)
+    go_node = nengo.Node(voc["S_GO"].v)
+    
+    dispatcher = spa.ActionSelection()
+    with dispatcher:
+        pass
+        #spa.ifmax(inp, vocab[])
