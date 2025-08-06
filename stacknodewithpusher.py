@@ -434,7 +434,21 @@ class SimpleStack(spa.Network):
             nengo.Connection(self.input, stack_in[:d])
             nengo.Connection(stack_out[d], self.sigout)
             nengo.Connection(stack_out[:d], self.output)
- 
+
+class Dispatcher(spa.Network):
+    def __init__(self, inp, circuits_dict, label="dispatcher", vocab=voc):
+        super().__init__(label=label)
+        
+        self.circuits_dict = circuits_dict
+        
+        with self:
+            self.inp = inp
+            
+            vstate = spa.State(voc)
+    
+            switch = spa.ActionSelection()
+            with switch:
+                spa.ifmax(self.inp.dot(vocab["F_FUNC"]), vocab["S_GO"] >> vstate)
 
 def create_modification_node(vocab, theta=0.2):
     d = vocab.dimensions
@@ -524,10 +538,10 @@ with model:
     
     nengo.Connection(pusher.trigger, data_stack.sigin)
     
-    vnode = nengo.Node(size_in=d)
-    go_node = nengo.Node(voc["S_GO"].v)
+    func_circuit = spa.State(voc)
     
-    dispatcher = spa.ActionSelection()
-    with dispatcher:
-        pass
-        #spa.ifmax(inp, vocab[])
+    circuits_dict = {"F_FUNC": func_circuit}
+    
+    dispatcher = Dispatcher(inp, vocab=voc)
+        
+        
