@@ -485,6 +485,21 @@ def create_modification_node(vocab, theta=0.2):
     
     return modify_output
 
+def busy_signal(t, sig):
+    go = sig[0]
+    done = sig[1]
+    if not hasattr(busy_signal, 'state'):
+        busy_signal.state = 0
+
+    if not busy_signal.state and go > theta:
+        busy_signal.state = 1
+    if busy_signal.state and done > theta:
+        busy_signal.state = 0
+
+    return busy_signal.state
+
+
+
 model = spa.Network()
 with model:
     kws = """Keywords:
@@ -506,15 +521,32 @@ with model:
         execute     F_EXEC
     """
     
-    #print([kw[20:] for kw in kws.split("\n")[1:]])
+    func_circuit = spa.Network()
+    with func_circuit:
+        func_circuit.input_register = spa.State(1, subdimensions=1)
+    
+    circuits_dict = {"F_FUNC":      func_circuit,
+                     "F_END":       func_circuit,
+                     "F_PUSHRET":   func_circuit,
+                     "F_SWAP":      func_circuit,
+                     'F_PEEP':      func_circuit, 
+                     'F_ROT':       func_circuit,  
+                     'F_SUB':       func_circuit, 
+                     'F_DUP':       func_circuit,  
+                     'F_PUT':       func_circuit,  
+                     'F_POPRET':    func_circuit,  
+                     'F_ISNEG':     func_circuit,  
+                     'F_IF':        func_circuit, 
+                     'F_ELSE':      func_circuit,  
+                     'F_DROP':      func_circuit,  
+                     'F_THEN':      func_circuit,  
+                     'F_EXEC':      func_circuit, 
+                     }
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
                  "S_PUSH", "S_POP", "S_CODE_ERROR", 'F_WORD',
-                 'F_FUNC', 'F_END', 'F_PUSHRET', 'F_SWAP', 
-                 'F_PEEP', 'F_ROT', 'F_SUB', 'F_DUP', 
-                 'F_PUT', 'F_POPRET', 'F_ISNEG', 
-                 'F_IF', 'F_ELSE', 'F_DROP', 'F_THEN', 'F_EXEC',]
+                 ] + list(circuits_dict.keys())
     voc.populate("; ".join(voc_items))
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
@@ -537,16 +569,12 @@ with model:
 
     
     nengo.Connection(pusher.head_output, inp.input)
-
     
     nengo.Connection(pusher.trigger, data_stack.sigin)
     
-    func_circuit = spa.Network()
-    with func_circuit:
-        func_circuit.input_register = spa.State(1, subdimensions=1)
     
-    circuits_dict = {"F_FUNC": func_circuit}
-    
+    busy_node = nengo.Node(output=busy_signal, size_in=2, size_out=1, label="busy_node")
+
     dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
         
         
