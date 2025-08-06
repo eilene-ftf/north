@@ -442,13 +442,15 @@ class Dispatcher(spa.Network):
         self.circuits_dict = circuits_dict
         
         with self:
-            self.inp = inp
+            self.input_register = spa.State(voc)
+            inp >> self.input_register
             
             vstate = spa.State(voc)
     
             switch = spa.ActionSelection()
             with switch:
-                spa.ifmax(self.inp.dot(vocab["F_FUNC"]), vocab["S_GO"] >> vstate)
+                for keyword, circuit in circuits_dict.items():
+                    spa.ifmax(self.input_register.dot(vocab[keyword]), vocab["S_GO"] >> circuit.input_register)
 
 def create_modification_node(vocab, theta=0.2):
     d = vocab.dimensions
@@ -503,7 +505,7 @@ with model:
         execute     F_EXEC
     """
     
-    print([kw[20:] for kw in kws.split("\n")[1:]])
+    #print([kw[20:] for kw in kws.split("\n")[1:]])
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
@@ -538,10 +540,12 @@ with model:
     
     nengo.Connection(pusher.trigger, data_stack.sigin)
     
-    func_circuit = spa.State(voc)
+    func_circuit = spa.Network()
+    with func_circuit:
+        func_circuit.input_register = spa.State(voc)
     
     circuits_dict = {"F_FUNC": func_circuit}
     
-    dispatcher = Dispatcher(inp, vocab=voc)
+    dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
         
         
