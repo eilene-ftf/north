@@ -442,8 +442,7 @@ class Dispatcher(spa.Network):
         self.circuits_dict = circuits_dict
         
         with self:
-            self.input_register = spa.State(voc)
-            inp >> self.input_register
+            self.input_register = inp
             
             vstate = spa.State(voc)
     
@@ -548,6 +547,6 @@ with model:
     
     circuits_dict = {"F_FUNC": func_circuit}
     
-    #dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
+    dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
         
         
