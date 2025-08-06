@@ -468,7 +468,7 @@ def create_modification_node(vocab, theta=0.2):
         if norm_output > 1e-6 and norm_pop > 1e-6:
             cos_sim = np.dot(output_vec, pop_vec) / (norm_output * norm_pop)
         
-        is_word = output_vec @ vocab['WORD'].v > theta
+        is_word = output_vec @ vocab['F_WORD'].v > theta
         to_return = vocab['Zero'].v
         
         if output_vec @ output_vec < theta or is_word > theta: 
@@ -510,7 +510,7 @@ with model:
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
-                 "S_PUSH", "S_POP", "S_CODE_ERROR",
+                 "S_PUSH", "S_POP", "S_CODE_ERROR", 'F_WORD',
                  'F_FUNC', 'F_END', 'F_PUSHRET', 'F_SWAP', 
                  'F_PEEP', 'F_ROT', 'F_SUB', 'F_DUP', 
                  'F_PUT', 'F_POPRET', 'F_ISNEG', 
@@ -521,14 +521,14 @@ with model:
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
-    lis2 = make_list(["CHERRY", "APPLE", "BANANA"], vocab=voc)
+    lis2 = make_list(["CHERRY", "F_WORD", "BANANA"], vocab=voc)
     
     voc.add(lis2.name, lis2.v)
     
     inp = spa.State(voc)
     out = spa.State(voc)
     
-    data_stack = SimpleStack()
+    data_stack = SimpleStack(label="data_stack")
     
     nengo.Connection(inp.output, data_stack.input)
     nengo.Connection(data_stack.output, out.input)
