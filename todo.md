@@ -5,12 +5,28 @@
 - [x] And pushes it to the data stack
 - [x] Make it pause execution when the symbol in the head is a keyword
 - [x] Have it resume execution on the falling edge of a busy signal
-- [ ] Select minimally TC subset of core FORTH
+- [x] Select minimally TC subset of core FORTH
 - [ ] Create a circuit that executes each word in the subset when triggered
-    - [ ] circuit 1
-    - [ ] circuit 2
-    - ...
-- [ ] Create a basal ganglia that triggers each circuit on its associated word
+    - Detail on implementation: 
+        - each circuit should be a `Network` with an `input_register` property (an spa `State`), and trigger immediately when that register has a value (the value will always be `S_GO`, which is just `[1]`)
+        - each circuit should connect to the relevant objects and directly modify them
+        - each circuit should emit a pulse when it's done from its `sigout` property
+    - [ ] circuit   `:          F_FUNC`
+    - [ ] circuit   `;          F_END` 
+    - [ ] circuit   `>R         F_PUSHRET`
+    - [ ] circuit   `R>         F_POPRET`
+    - [ ] circuit   `@          F_PEEP`
+    - [ ] circuit   `!          F_PUT`
+    - [ ] circuit   `SWAP       F_SWAP`
+    - [ ] circuit   `DUP        F_DUP`
+    - [ ] circuit   `ROT        F_ROT`
+    - [ ] circuit   `DROP       F_DROP`
+    - [ ] circuit   `0<         F_ISNEG`
+    - [ ] circuit   `IF         F_IF`
+    - [ ] circuit   `THEN       F_THEN`
+    - [ ] circuit   `ELSE       F_ELSE`
+    - [ ] circuit   `EXECUTE    F_EXEC`
+- [x] Create a basal ganglia that triggers each circuit on its associated word
 - [ ] Create a global busy signal that monitors the execution of a word until done
 - [ ] Create a node containing a virtual program table
 - [ ] Create a circuit that retrieves a program from the table when it is not in our minimum subset

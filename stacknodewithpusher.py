@@ -447,10 +447,12 @@ class Dispatcher(spa.Network):
             
             vstate = spa.State(voc)
     
+            go = spa.SemanticPointer([1], name="S_GO")
+    
             switch = spa.ActionSelection()
             with switch:
                 for keyword, circuit in circuits_dict.items():
-                    spa.ifmax(self.input_register.dot(vocab[keyword]), vocab["S_GO"] >> circuit.input_register)
+                    spa.ifmax(self.input_register.dot(vocab[keyword]), go >> circuit.input_register)
 
 def create_modification_node(vocab, theta=0.2):
     d = vocab.dimensions
@@ -509,7 +511,7 @@ with model:
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
-                 "S_PUSH", "S_POP", "S_CODE_ERROR", "S_GO",
+                 "S_PUSH", "S_POP", "S_CODE_ERROR",
                  'F_FUNC', 'F_END', 'F_PUSHRET', 'F_SWAP', 
                  'F_PEEP', 'F_ROT', 'F_SUB', 'F_DUP', 
                  'F_PUT', 'F_POPRET', 'F_ISNEG', 
@@ -542,10 +544,10 @@ with model:
     
     func_circuit = spa.Network()
     with func_circuit:
-        func_circuit.input_register = spa.State(voc)
+        func_circuit.input_register = spa.State(1, subdimensions=1)
     
     circuits_dict = {"F_FUNC": func_circuit}
     
-    dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
+    #dispatcher = Dispatcher(inp, circuits_dict, vocab=voc)
         
         
