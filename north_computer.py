@@ -540,6 +540,22 @@ def make_busy_signal():
         return state
     return busy_signal
 
+class WordCircuit(spa.Network):
+    def __init__(self,  vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.type = spa.types.TScalar
+        with self:
+            self.input = nengo.Node(size_in=1, 
+                                    size_out=1, 
+                                    output=lambda _, x: x if x[0] > theta else 0, 
+                                    label="input",
+                                    )
+            self.output = nengo.Node(size_in=1, label="output")
+
+class SwapCircuit(WordCircuit):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
 
 
 model = spa.Network()
@@ -583,7 +599,7 @@ with model:
         circuits_dict = {"F_FUNC":      new_dummy("F_FUNC"),
                          "F_END":       new_dummy("F_END"),
                          "F_PUSHRET":   new_dummy("F_PUSHRET"),
-                         "F_SWAP":      new_dummy("F_SWAP"),
+                         "F_SWAP":      SwapCircuit(vocab=voc, label="SWAP Circuit"),
                          'F_PEEP':      new_dummy("F_PEEP"), 
                          'F_ROT':       new_dummy("F_ROT"),  
                          'F_SUB':       new_dummy("F_SUB"), 
