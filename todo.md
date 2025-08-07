@@ -8,9 +8,12 @@
 - [x] Select minimally TC subset of core FORTH
 - [ ] Create a circuit that executes each word in the subset when triggered
     - Detail on implementation: 
-        - each circuit should be a `Network` with an `input_register` property (an spa `State`), and trigger immediately when that register has a value (the value will always be `S_GO`, which is just `[1]`)
+        - each circuit should be a `Network` with an `input` property (a Nengo `Node`), and trigger immediately when that register has a value (the value will always be `S_GO`, which is just `[1]`)
+            - the input node should not be a passthrough node, it should be strictly thresholded, it should not emit a value less than the global threshold (this is to keep from spuriously activating the global busy signal)
         - each circuit should connect to the relevant objects and directly modify them
-        - each circuit should emit a pulse when it's done from its `sigout` property
+        - each circuit should emit a pulse when it's done from its `output` property
+        - it should have an spa type (`TScalar` or `TVocabulary(vocab)`, I'll figure out which)
+        - `input` and `output` are both one-dimensional
     - [ ] circuit   `:          F_FUNC      `
     - [ ] circuit   `;          F_END       ` 
     - [ ] circuit   `>R         F_PUSHRET   `
@@ -27,7 +30,7 @@
     - [ ] circuit   `ELSE       F_ELSE      `
     - [ ] circuit   `EXECUTE    F_EXEC      `
 - [x] Create a basal ganglia that triggers each circuit on its associated word
-- [ ] Create a global busy signal that monitors the execution of a word until done
+- [x] Create a global busy signal that monitors the execution of a word until done
 - [ ] Create a node containing a virtual program table
 - [ ] Create a circuit that retrieves a program from the table when it is not in our minimum subset
 - [ ] Add it to the basal ganglia
