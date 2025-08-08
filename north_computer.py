@@ -553,9 +553,40 @@ class WordCircuit(spa.Network):
             self.output = nengo.Node(size_in=1, label="output")
 
 class SwapCircuit(WordCircuit):
-    def __init__(self, *args, **kwargs):
+    """(a b -- b a)
+    """
+    def __init__(self, stack, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
+        self.stack = stack
 
+        if isinstance(stack, list):
+            with self:
+                def make_swap(stack):
+                    state = 0
+                    stopwatch = 0
+                    def swap(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            stack[-2:] = stack[:-3:-1]
+                            stopwatch = t
+                            print([p.name for p in stack])
+                        elif state == 0 and go > theta and t > stopwatch + 0.75:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + 1.25:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return swap
+                swapper = nengo.Node(size_in=1, output=make_swap(self.stack))
+
+                nengo.Connection(self.input, swapper)
+                nengo.Connection(swapper, self.output)
+
+
+        elif isinstance(stack, nengo.Network):
+            raise NotImplementedError("I'll do this later lol")
 
 
 model = spa.Network()
@@ -578,6 +609,8 @@ with model:
         then        F_THEN
         execute     F_EXEC
     """
+
+    data_stack = SimpleStack(label="data_stack")
     
     def new_dummy(name=""):
         dummy_circuit = spa.Network(f"{name} circuit")
@@ -599,7 +632,7 @@ with model:
         circuits_dict = {"F_FUNC":      new_dummy("F_FUNC"),
                          "F_END":       new_dummy("F_END"),
                          "F_PUSHRET":   new_dummy("F_PUSHRET"),
-                         "F_SWAP":      SwapCircuit(vocab=voc, label="SWAP Circuit"),
+                         "F_SWAP":      SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
                          'F_PEEP':      new_dummy("F_PEEP"), 
                          'F_ROT':       new_dummy("F_ROT"),  
                          'F_SUB':       new_dummy("F_SUB"), 
@@ -624,19 +657,18 @@ with model:
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
-    lis2 = make_list(["APPLE", "CHERRY", "F_FUNC", "BANANA"], vocab=voc)
+    test_program = make_list(["APPLE", "CHERRY", "F_SWAP", "BANANA"], vocab=voc)
     
-    voc.add(lis2.name, lis2.v)
+    voc.add(test_program.name, test_program.v)
     
     inp = spa.State(voc)
     out = spa.State(voc)
     
-    data_stack = SimpleStack(label="data_stack")
     
     nengo.Connection(inp.output, data_stack.input)
     nengo.Connection(data_stack.output, out.input)
 
-    control_unit = ControlUnit(d=d, theta=theta, items=lis2, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=circuits_dict)
+    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=circuits_dict)
 
     
     nengo.Connection(control_unit.to_data_stack, inp.input)

@@ -20,7 +20,7 @@
     - [ ] circuit   `R>         F_POPRET    `
     - [ ] circuit   `@          F_PEEP      `
     - [ ] circuit   `!          F_PUT       `
-    - [ ] circuit   `SWAP       F_SWAP      `
+    - [x] circuit   `SWAP       F_SWAP      `
     - [ ] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
     - [ ] circuit   `DROP       F_DROP      `
