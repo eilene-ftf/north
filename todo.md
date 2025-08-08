@@ -24,11 +24,11 @@
     - [ ] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
     - [ ] circuit   `DROP       F_DROP      `
-    - [ ] circuit*  `0<         F_ISNEG     `
-    - [ ] circuit*  `IF         F_IF        `
-    - [ ] circuit*  `THEN       F_THEN      `
-    - [ ] circuit*  `ELSE       F_ELSE      `
-    - [ ] circuit*  `EXECUTE    F_EXEC      `
+    - [ ] circuit   `0<         F_ISNEG     `
+    - [ ] circuit   `IF         F_IF        `
+    - [ ] circuit   `THEN       F_THEN      `
+    - [ ] circuit   `ELSE       F_ELSE      `
+    - [ ] circuit   `EXECUTE    F_EXEC      `
 - [x] Create a basal ganglia that triggers each circuit on its associated word
 - [x] Create a global busy signal that monitors the execution of a word until done
 - [x] Create a node containing a virtual program table

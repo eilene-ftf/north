@@ -666,6 +666,7 @@ with model:
 
     data_stack = SimpleStack(label="data_stack")
     return_stack = SimpleStack(label="return_stack")
+    ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
     call_stack = SimpleStack(label="call_stack")
 
     registers = RegisterBank(
