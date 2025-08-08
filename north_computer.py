@@ -646,8 +646,8 @@ class RegisterBank(spa.Network):
 
         with self:
             for name in names:
-                setattr(self, f'{name}_in', nengo.Node(size_in=d))
-                setattr(self, f'{name}_out', nengo.Node(size_in=d))
+                setattr(self, f'{name}_in', SemanticNode(size_in=d))
+                setattr(self, f'{name}_out', SemanticNode(size_in=d))
                 setattr(self, name, spa.State(vocab))
                 self.bindings[name] = getattr(self, name)
                 
