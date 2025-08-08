@@ -572,9 +572,9 @@ class SwapCircuit(WordCircuit):
                             stack[-2:] = stack[:-3:-1]
                             stopwatch = t
                             print([p.name for p in stack])
-                        elif state == 0 and go > theta and t > stopwatch + 0.75:
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.25:
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
                             state = 0
                             stopwatch = 0
                         return state
