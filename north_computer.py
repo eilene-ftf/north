@@ -592,7 +592,7 @@ class SwapCircuit(WordCircuit):
             raise NotImplementedError("I'll do this later lol")
 
 class UserFuncCircuit(WordCircuit):
-    def __init__(self, func_register, func_controller, keys={}, bindings={}, vocab=voc, *args, **kwargs):
+    def __init__(self, keys={}, bindings={}, vocab=voc, *args, **kwargs):
         super().__init__(*args, *kwargs)
 
         d = vocab.dimensions
@@ -624,23 +624,35 @@ class UserFuncCircuit(WordCircuit):
                     stopwatch = 0
                 return np.concatenate([to_controller, ctrl_sig, state])
             return prog_table
-        program_table = nengo.Node(size_in=1, output=make_prog_table(self.keys, self.bindings))
-        nengo.Connection(program_table[:d], func_controller.input)
-        nengo.Connection(program_table[-2], func_controller.sigin)
 
-        nengo.Connection(self.input, program_table[-1])
-        nengo.Connection(program_table[-1], self.output)
+        with self:
+            self.func_key = nengo.Node(size_in=d) 
+            program_table = nengo.Node(size_in=d+1, output=make_prog_table(self.keys, self.bindings))
+            nengo.Connection(self.func_key, program_table[:d])
+            nengo.Connection(self.input, program_table[-1])
+
+            self.retrieved_func = nengo.Node(size_in=d)
+            self.ctrl_sigout = nengo.Node(size_in=1)
+            nengo.Connection(program_table[:d], self.retrieved_func)
+            nengo.Connection(program_table[-2], self.ctrl_sigout)
+            nengo.Connection(program_table[-1], self.output)
 
 class RegisterBank(spa.Network):
     def __init__(self, names, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self.bindings = {}
+        d = vocab.dimensions
 
         with self:
             for name in names:
+                setattr(self, f'{name}_in', nengo.Node(size_in=d))
+                setattr(self, f'{name}_out', nengo.Node(size_in=d))
                 setattr(self, name, spa.State(vocab))
                 self.bindings[name] = getattr(self, name)
+                
+                nengo.Connection(getattr(self, f'{name}_in'), self.bindings[name].input)
+                nengo.Connection(self.bindings[name].output, getattr(self, f'{name}_out'))
 
 
 model = spa.Network()
