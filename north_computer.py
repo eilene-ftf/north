@@ -32,6 +32,9 @@ def make_stack_in(stack):
             elif vcos(inp, vocab['S_POP']) > theta:
                 out = vocab['S_POP'].v
                 print([p.name for p in stack])
+            elif vcos(inp, vocab['S_DUMP']) > theta:
+                del stack[:]
+                print([p.name for p in stack])
         if state == 1 and sig < theta and t > stopwatch + 0.2:
             state = 0
             out = np.zeros(d)
@@ -477,7 +480,7 @@ class Dispatcher(spa.Network):
             switch = spa.ActionSelection()
             with switch:
                 spa.ifmax(theta, RoutedConnection(go, wait))
-                for keyword, circuit in list(circuits_dict.items())[:4]:
+                for keyword, circuit in circuits_dict.items():
                     spa.ifmax(
                             in_reg @ vocab[keyword],
                             RoutedConnection(go, circuit),
@@ -505,7 +508,7 @@ def create_modification_node(vocab, circuits, theta=0.2):
         if norm_output > 1e-6 and norm_pop > 1e-6:
             cos_sim = np.dot(output_vec, pop_vec) / (norm_output * norm_pop)
         
-        is_word = (output_vec @ circ_holo) > (1 - theta)
+        is_word = (output_vec @ circ_holo) > theta
         to_stack = vocab['Zero'].v
         to_dispatcher = vocab['Zero'].v
         
@@ -588,6 +591,57 @@ class SwapCircuit(WordCircuit):
         elif isinstance(stack, nengo.Network):
             raise NotImplementedError("I'll do this later lol")
 
+class UserFuncCircuit(WordCircuit):
+    def __init__(self, func_register, func_controller, keys={}, bindings={}, vocab=voc, *args, **kwargs):
+        super().__init__(*args, *kwargs)
+
+        d = vocab.dimensions
+        self.keys = keys # dictionary associating keywords to vector-encoded forth words
+        self.bindings = bindings # dictionary associating keywords to function defs
+        
+        def make_prog_table(keys, bindings):
+            state = 0
+            stopwatch = 0
+            ctrl_sig = 0
+            def prog_table(t, x):
+                nonlocal state, stopwatch, ctrl_sig
+                func = x[:d]
+                go = x[-1]
+                to_controller = np.zeros(d)
+                if state == 0 and go > theta and stopwatch == 0:
+                    keys_list = list(keys.items())
+                    key = keys_list[np.argmax([func @ k for _, k in keys_list])]
+                    function = bindings[key]
+                    to_controller = function
+                    ctrl_sig = 1
+                    stopwatch = t
+                elif state == 0 and go > theta and t > stopwatch + 0.25:
+                    ctrl_sig = 0
+                elif state == 0 and go > theta and t > stopwatch + 1.25:
+                    state = 1
+                elif state == 1 and go < theta and t > stopwatch + 1.75:
+                    state = 0
+                    stopwatch = 0
+                return np.concatenate([to_controller, ctrl_sig, state])
+            return prog_table
+        program_table = nengo.Node(size_in=1, output=make_prog_table(self.keys, self.bindings))
+        nengo.Connection(program_table[:d], func_controller.input)
+        nengo.Connection(program_table[-2], func_controller.sigin)
+
+        nengo.Connection(self.input, program_table[-1])
+        nengo.Connection(program_table[-1], self.output)
+
+class RegisterBank(spa.Network):
+    def __init__(self, names, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        
+        self.bindings = {}
+
+        with self:
+            for name in names:
+                setattr(self, name, spa.State(vocab))
+                self.bindings[name] = getattr(self, name)
+
 
 model = spa.Network()
 with model:
@@ -611,7 +665,15 @@ with model:
     """
 
     data_stack = SimpleStack(label="data_stack")
-    
+    return_stack = SimpleStack(label="return_stack")
+    call_stack = SimpleStack(label="call_stack")
+
+    registers = RegisterBank(
+            ['R1', 'R2', 'R3', 'R4', 'R5', 
+             'I1', 'I2', 'I3', 
+             'O1', 'O2', 'O3']
+            )
+
     def new_dummy(name=""):
         dummy_circuit = spa.Network(f"{name} circuit")
         with dummy_circuit:
@@ -649,9 +711,14 @@ with model:
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
-                 "S_PUSH", "S_POP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
+                 "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
                  ] + list(circuits_dict.keys())
     voc.populate("; ".join(voc_items))
+
+    # holo = sum([voc[c].v for c in circuits_dict.keys()])
+    # print(np.sqrt(len(circuits_dict.values())), 
+    #       np.linalg.norm(holo),
+    #      [voc[c].v @ holo for c in circuits_dict.keys()])
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
     listail1 = cons(voc["APPLE"], voc["BANANA"])

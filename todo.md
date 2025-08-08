@@ -14,8 +14,8 @@
         - each circuit should emit a pulse when it's done from its `output` property
         - it should have an spa type (`TScalar` or `TVocabulary(vocab)`, I'll figure out which)
         - `input` and `output` are both one-dimensional
-    - [ ] circuit   `:          F_FUNC      `
-    - [ ] circuit   `;          F_END       ` 
+    - [ ] circuit*  `:          F_FUNC      `
+    - [ ] circuit*  `;          F_END       ` 
     - [ ] circuit   `>R         F_PUSHRET   `
     - [ ] circuit   `R>         F_POPRET    `
     - [ ] circuit   `@          F_PEEP      `
@@ -24,14 +24,14 @@
     - [ ] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
     - [ ] circuit   `DROP       F_DROP      `
-    - [ ] circuit   `0<         F_ISNEG     `
-    - [ ] circuit   `IF         F_IF        `
-    - [ ] circuit   `THEN       F_THEN      `
-    - [ ] circuit   `ELSE       F_ELSE      `
-    - [ ] circuit   `EXECUTE    F_EXEC      `
+    - [ ] circuit*  `0<         F_ISNEG     `
+    - [ ] circuit*  `IF         F_IF        `
+    - [ ] circuit*  `THEN       F_THEN      `
+    - [ ] circuit*  `ELSE       F_ELSE      `
+    - [ ] circuit*  `EXECUTE    F_EXEC      `
 - [x] Create a basal ganglia that triggers each circuit on its associated word
 - [x] Create a global busy signal that monitors the execution of a word until done
-- [ ] Create a node containing a virtual program table
-- [ ] Create a circuit that retrieves a program from the table when it is not in our minimum subset
+- [x] Create a node containing a virtual program table
+- [x] Create a circuit that retrieves a program from the table when it is not in our minimum subset
 - [ ] Add it to the basal ganglia
-- [ ] Modify it to push the current tail to the call stack and push the retrieved program to the tail
+- [ ] Modify it to push the current tail to the call stack and put the retrieved program in the tail
