@@ -505,10 +505,10 @@ def create_modification_node(vocab, circuits, theta=0.2):
         if norm_output > 1e-6 and norm_pop > 1e-6:
             cos_sim = np.dot(output_vec, pop_vec) / (norm_output * norm_pop)
         
-        is_word = output_vec @ circ_holo > theta
+        is_word = (output_vec @ circ_holo) > (1 - theta)
         to_stack = vocab['Zero'].v
         to_dispatcher = vocab['Zero'].v
-       
+        
         if output_vec @ output_vec < theta:
             pass
         elif is_word:
