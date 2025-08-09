@@ -21,9 +21,12 @@
     - [ ] circuit   `@          F_PEEP      `
     - [ ] circuit   `!          F_PUT       `
     - [x] circuit   `SWAP       F_SWAP      `
-    - [ ] circuit   `DUP        F_DUP       `
+    - [x] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
-    - [ ] circuit   `DROP       F_DROP      `
+    - [x] circuit   `DROP       F_DROP      `
+    - [ ] circuit   `+          F_ADD       `
+    - [ ] circuit   `-          F_SUB       `
+    - [ ] circuit   `0=         F_ISZERO    `
     - [ ] circuit   `0<         F_ISNEG     `
     - [ ] circuit   `IF         F_IF        `
     - [ ] circuit   `THEN       F_THEN      `
@@ -33,5 +36,5 @@
 - [x] Create a global busy signal that monitors the execution of a word until done
 - [x] Create a node containing a virtual program table
 - [x] Create a circuit that retrieves a program from the table when it is not in our minimum subset
-- [ ] Add it to the basal ganglia
+- [x] Add it to the basal ganglia
 - [ ] Modify it to push the current tail to the call stack and put the retrieved program in the tail
