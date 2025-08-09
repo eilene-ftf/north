@@ -1049,8 +1049,66 @@ def count_list_depth(lst, vocab):
         current = car(current, vocab)
     return depth
 
+class DropCircuit(WordCircuit):
+    def __init__(self, stack, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.stack = stack
+        if isinstance (stack, list):
+            with self:
+                def make_drop(stack):
+                    state = 0
+                    stopwatch = 0
+                    def drop(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            stack.pop().v 
+                            stopwatch = t
+                            print([p.name for p in stack])
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return drop 
+                dropper = nengo.Node(size_in = 1, output = make_drop(stack))
+                nengo.Connection(self.input, dropper)
+                nengo.Connection(dropper, self.output)
+
+class DupCircuit(WordCircuit):
+    def __init__(self, stack, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.stack = stack
+        if isinstance (stack, list):
+            with self:
+                def make_duplicate(stack):
+                    state = 0
+                    stopwatch = 0
+                    def duplicate(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            temp = stack.pop().v
+                            stack.append(temp)
+                            stack.append(temp)
+                            stopwatch = t
+                            print([p.name for p in stack])
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return duplicate 
+                dupper = nengo.Node(size_in = 1, output = make_duplicate(stack))
+                nengo.Connection(self.input, dupper)
+                nengo.Connection(dupper, self.output)
+
 class UserFuncCircuit(WordCircuit):
-    def __init__(self, keys={}, bindings={}, vocab=voc, *args, **kwargs):
+    def __init__(self, func_register, func_controller, keys={}, bindings={}, vocab=voc, *args, **kwargs):
         super().__init__(*args, *kwargs)
 
         d = vocab.dimensions
@@ -1083,35 +1141,23 @@ class UserFuncCircuit(WordCircuit):
                     stopwatch = 0
                 return np.concatenate([to_controller, ctrl_sig, state])
             return prog_table
+        program_table = nengo.Node(size_in=1, output=make_prog_table(self.keys, self.bindings))
+        nengo.Connection(program_table[:d], func_controller.input)
+        nengo.Connection(program_table[-2], func_controller.sigin)
 
-        with self:
-            self.func_key = nengo.Node(size_in=d) 
-            program_table = nengo.Node(size_in=d+1, output=make_prog_table(self.keys, self.bindings))
-            nengo.Connection(self.func_key, program_table[:d])
-            nengo.Connection(self.input, program_table[-1])
-
-            self.retrieved_func = nengo.Node(size_in=d)
-            self.ctrl_sigout = nengo.Node(size_in=1)
-            nengo.Connection(program_table[:d], self.retrieved_func)
-            nengo.Connection(program_table[-2], self.ctrl_sigout)
-            nengo.Connection(program_table[-1], self.output)
+        nengo.Connection(self.input, program_table[-1])
+        nengo.Connection(program_table[-1], self.output)
 
 class RegisterBank(spa.Network):
     def __init__(self, names, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self.bindings = {}
-        d = vocab.dimensions
 
         with self:
             for name in names:
-                setattr(self, f'{name}_in', SemanticNode(size_in=d))
-                setattr(self, f'{name}_out', SemanticNode(size_in=d))
                 setattr(self, name, spa.State(vocab))
                 self.bindings[name] = getattr(self, name)
-                
-                nengo.Connection(getattr(self, f'{name}_in'), self.bindings[name].input)
-                nengo.Connection(self.bindings[name].output, getattr(self, f'{name}_out'))
 
 
 model = spa.Network()
@@ -1175,7 +1221,6 @@ with model:
             "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
             "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
         }
-    
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
                  "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
@@ -1196,7 +1241,7 @@ with model:
     result = add_list_numbers(two, three, voc)
     print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list(["APPLE","CHERRY"], vocab=voc)
+    test_program = make_list(["APPLE", "CHERRY", "F_DROP", "BANANA"], vocab=voc)
     
     voc.add(test_program.name, test_program.v)
     
