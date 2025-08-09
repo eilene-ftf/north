@@ -1086,9 +1086,9 @@ class DropCircuit(WordCircuit):
                             stack.pop().v 
                             stopwatch = t
                             print([p.name for p in stack])
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -1116,9 +1116,9 @@ class DupCircuit(WordCircuit):
                             stack.append(temp)
                             stopwatch = t
                             print([p.name for p in stack])
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
