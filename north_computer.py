@@ -1036,11 +1036,9 @@ def count_list_depth(lst, vocab):
     """Count nesting depth of list (NIL = 0, (NIL) = 1, etc.) iteratively."""
     depth = 0
     current = lst
-    while True:
-        if vcos(current, vocab['T_NIL']) > theta:
-            break
+    while vcos(current, vocab['T_NIL']) < theta:
         depth += 1
-        current = cdr(current, vocab)
+        current = car(current, vocab)
     return depth
 
 class UserFuncCircuit(WordCircuit):
