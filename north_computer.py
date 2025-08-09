@@ -161,35 +161,57 @@ def cons(h, t, vocab=voc, assoc_memory=assoc):
 
     if is_list(t):
         if h.name not in vocab: vocab.add(h.name, h)
+        if vcos(h, vocab['T_NIL']) < 0.2:
+            if f"Pointer_to_{h.name}" not in vocab:
+                newv_h = np.random.normal(size = d, scale=1/np.sqrt(d))
+                newv_h_name = f"Pointer_to_{h.name}"
+                vocab.add(newv_h_name, newv_h)
+                assoc_memory.memorize(vocab[newv_h_name], h)
+                #print(newv)
+            h_name = f"Pointer_to_{h.name}"
+            h_ptr = vocab[h_name]
+        else:
+            h_ptr = h
+            
+        
         if t.name not in vocab: vocab.add(t.name, t)
         if vcos(t, vocab['T_NIL']) < 0.2:
             if f"Pointer_to_{t.name}" not in vocab:
-                newv = np.random.normal(size = d, scale=1/np.sqrt(d))
-                newv_name = f"Pointer_to_{t.name}"
-                vocab.add(newv_name, newv)
-                assoc_memory.memorize(vocab[newv_name], t)
+                newv_t = np.random.normal(size = d, scale=1/np.sqrt(d))
+                newv_t_name = f"Pointer_to_{t.name}"
+                vocab.add(newv_t_name, newv_t)
+                assoc_memory.memorize(vocab[newv_t_name], t)
                 #print(newv)
             t_name = f"Pointer_to_{t.name}"
-            t = vocab[t_name]
+            t_ptr = vocab[t_name]
+        else:
+            t_ptr = t
             
             
             #print(list(assoc_memory.A.reverse.items()))
-        new_sp = vocab['R_LEFT'] * h + vocab['R_RIGHT'] * t + vocab['R_PHI']
-        new_name = f'LS_{h.name}_{t.name.replace("Pointer_to_", "")}'
+        new_sp = vocab['R_LEFT'] * h_ptr + vocab['R_RIGHT'] * t_ptr + vocab['R_PHI']
+        new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
         return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
     return cons(h, cons(t, vocab['T_NIL']), vocab=vocab)
 
 def car(l, vocab=voc):
+    h_ptr = cleanup(~vocab['R_LEFT'] * l, vocab=vocab)
     
-    return cleanup(~vocab['R_LEFT'] * l, vocab=vocab)
+    if h_ptr.name.startswith("Pointer_to_"):
+        sliced_name = h_ptr.name[11:]
+        return vocab[sliced_name]
+    else:
+        return h_ptr
 
 def cdr(l, vocab=voc):
-    p = cleanup(~vocab['R_RIGHT'] * l, vocab=vocab)
-    if p.name == 'T_NIL':
-        return p
-    sliced_name = p.name[11:]
-    #print(sliced_name)
-    return vocab[sliced_name]
+    t_ptr  = cleanup(~vocab['R_RIGHT'] * l, vocab=vocab)
+    if t_ptr.name == 'T_NIL':
+        return t_ptr
+    if t_ptr.name.startswith("Pointer_to_"):
+        sliced_name = t_ptr.name[11:]
+        return vocab[sliced_name]
+    else:
+        return t_ptr
 
 def read(l, vocab=voc):
 
@@ -282,8 +304,8 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.word_busy, resume.input)
             nengo.Connection(resume.output, mod_node[-1])
             
-            def cleanup_node(t, x, vocab=self.voc):
-                return cleanup(x, vocab=voc).v
+            #def cleanup_node(t, x, vocab=self.voc):
+            #    return cleanup(x, vocab=voc).v
             
             def gate_transmission(t,x):
                 return x if t < 1.0 else np.zeros(self.d)
@@ -312,7 +334,13 @@ class ControlUnit(spa.Network):
                 label="tail_dereference"
             )
             
-            head_cleanup = nengo.Node(size_in=d, size_out=d, output=cleanup_node, label="head_cleanup")
+            #head_cleanup = nengo.Node(size_in=d, size_out=d, output=cleanup_node, label="head_cleanup")
+            head_cleanup = nengo.Node(
+                dereference, 
+                size_in=self.d, 
+                size_out=self.d,
+                label="head_dereference"
+            )
             
             nengo.Connection(noisy_h.output, head_cleanup)
             nengo.Connection(head_cleanup, H_state.input)
@@ -1178,12 +1206,19 @@ with model:
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
-    two = cons(voc['T_NIL'], cons(voc['T_NIL'], voc['T_NIL']))
-    three = cons(voc['T_NIL'], two)  # Using existing list
-    result = add_list_numbers(two, three, voc)
-    print(count_list_depth(result, voc))  # Should print 5
+    def make_peano_number(n, vocab):
+        num = vocab['T_NIL']
+        for _ in range(n):
+            num = cons(vocab['T_NIL'], num, vocab=vocab)
+        return num
     
-    test_program = make_list(["APPLE","CHERRY"], vocab=voc)
+    num1 = make_peano_number(1, voc)
+    num2 = make_peano_number(2, voc)
+    
+    voc.add("NUMBER_1", num1.v)
+    voc.add("NUMBER_2", num2.v)
+    
+    test_program = make_list(["APPLE","NUMBER_1","NUMBER_1","F_ADD","NUMBER_1","F_ADD","NUMBER_1","F_ADD"], vocab=voc)
     
     voc.add(test_program.name, test_program.v)
     
