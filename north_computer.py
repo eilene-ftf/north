@@ -8,6 +8,14 @@ from collections import UserDict
 
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
+t_stack = 0.2
+t_ctrl = 0.25
+t_busy = 1.25
+t_done = 1.75
+clock_tick = 2.0
+
+assert t_ctrl < t_busy and t_busy < t_done
+
 voc = spa.Vocabulary(d)
 
 
@@ -35,7 +43,7 @@ def make_stack_in(stack):
             elif vcos(inp, vocab['S_DUMP']) > theta:
                 del stack[:]
                 print([p.name for p in stack])
-        if state == 1 and sig < theta and t > stopwatch + 0.2:
+        if state == 1 and sig < theta and t > stopwatch + t_stack:
             state = 0
             out = np.zeros(d)
         # print([v.name for v in stack])
@@ -60,7 +68,7 @@ def make_stack_out(stack):
                     state = stack.pop().v
                 else:
                     state = vocab['S_CODE_ERR_STACKEMPTY'].v
-        if sigout == 1 and t > stopwatch + 0.2:
+        if sigout == 1 and t > stopwatch + t_stack:
             sigout = 0
         return np.concatenate((state, [sigout]))
     
@@ -270,7 +278,7 @@ class ControlUnit(spa.Network):
             # May need to be changed, seems like it might behave weirdly if 
             # there are multiple words in a row or processing a word takes a 
             # long time
-            resume = RisingEdgeDetector(tau=1.5, bias=0, label="resume")
+            resume = RisingEdgeDetector(tau=0.75 * clock_tick, bias=0, label="resume")
             nengo.Connection(self.word_busy, resume.input)
             nengo.Connection(resume.output, mod_node[-1])
             
@@ -572,12 +580,13 @@ class SwapCircuit(WordCircuit):
                         nonlocal state, stopwatch
                         go = x[0]
                         if state == 0 and go > theta and stopwatch == 0:
-                            stack[-2:] = stack[:-3:-1]
-                            stopwatch = t
+                            if stack:
+                                stack[-2:] = stack[:-3:-1]
+                                stopwatch = t
                             print([p.name for p in stack])
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -590,6 +599,455 @@ class SwapCircuit(WordCircuit):
 
         elif isinstance(stack, nengo.Network):
             raise NotImplementedError("I'll do this later lol")
+            
+            
+class DupCircuit(WordCircuit):
+    """(a -- a a)
+    Duplicate top of stack
+    """
+    def __init__(self, stack, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        self.stack = stack
+        if isinstance (stack, list):
+            with self:
+                def make_duplicate(stack):
+                    state = 0
+                    stopwatch = 0
+                    def duplicate(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if stack:
+                                temp = stack.pop()
+                                stack.append(temp)
+                                stack.append(temp)
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return duplicate 
+                dupper = nengo.Node(size_in = 1, output = make_duplicate(stack))
+                nengo.Connection(self.input, dupper)
+                nengo.Connection(dupper, self.output)
+
+class DropCircuit(WordCircuit):
+    """(a -- )
+    Remove top of stack
+    """
+    def __init__(self, stack, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+
+        if isinstance(stack, list):
+            with self:
+                def make_drop(stack):
+                    state = 0
+                    stopwatch = 0
+                    def drop(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if stack:
+                                stack.pop()
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return drop
+                dropper = nengo.Node(size_in=1, output=make_drop(self.stack))
+                nengo.Connection(self.input, dropper)
+                nengo.Connection(dropper, self.output)
+
+class AddCircuit(WordCircuit):
+    """(a b -- c)
+    Add two numbers using list-based arithmetic
+    """
+    def __init__(self, stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.vocab = vocab
+
+        if isinstance(stack, list):
+            with self:
+                def make_add(stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def add(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if len(stack) >= 2:
+                                b = stack.pop()  # Second operand (top)
+                                a = stack.pop()  # First operand
+                                # Addition: concatenate lists representing numbers (we utilize Peano based encoding, reference add_list_numbers())
+                                # a = (NIL) = 1, b = ((NIL)) = 2, result = (((NIL))) = 3 ; We know this is terrible, its all we had time for (final will use modular encoding)
+                                result = add_list_numbers(a, b, vocab)
+                                stack.append(result)
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return add
+                adder = nengo.Node(size_in=1, output=make_add(self.stack, self.vocab))
+                nengo.Connection(self.input, adder)
+                nengo.Connection(adder, self.output)
+
+class SubCircuit(WordCircuit):
+    """(a b -- c)
+    Subtract two numbers using list-based arithmetic
+    """
+    def __init__(self, stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.vocab = vocab
+
+        if isinstance(stack, list):
+            with self:
+                def make_sub(stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def sub(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if len(stack) >= 2:
+                                b = stack.pop()  # Second operand (top)
+                                a = stack.pop()  # First operand
+                                # Subtraction: reduce list depth
+                                result = sub_list_numbers(a, b, vocab)
+                                stack.append(result)
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return sub
+                subtractor = nengo.Node(size_in=1, output=make_sub(self.stack, self.vocab))
+                nengo.Connection(self.input, subtractor)
+                nengo.Connection(subtractor, self.output)
+
+class IsZeroCircuit(WordCircuit):
+    """(a -- flag)
+    Test if top of stack equals zero (NIL)
+    """
+    def __init__(self, stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.vocab = vocab
+
+        if isinstance(stack, list):
+            with self:
+                def make_is_zero(stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def is_zero(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if stack:
+                                a = stack.pop()
+                                # Test if a equals NIL (zero)
+                                is_nil = vcos(a, vocab['T_NIL']) > theta
+                                flag = vocab['TRUE'] if is_nil else vocab['FALSE']
+                                stack.append(flag)
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return is_zero
+                tester = nengo.Node(size_in=1, output=make_is_zero(self.stack, self.vocab))
+                nengo.Connection(self.input, tester)
+                nengo.Connection(tester, self.output)
+
+class PeepCircuit(WordCircuit):
+    """@ (addr -- value)
+    Fetch from memory address
+    """
+    def __init__(self, stack, memory_registers, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.memory_registers = memory_registers
+        self.vocab = vocab
+
+        if isinstance(stack, list):
+            with self:
+                def make_peep(stack, registers, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def peep(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if stack:
+                                addr = stack.pop()
+                                # Use cleanup to find closest register address
+                                reg_name = cleanup(addr, vocab).name
+                                if reg_name in registers.bindings:
+                                    value = registers.bindings[reg_name].output
+                                    # Convert nengo output to semantic pointer
+                                    value_sp = spa.SemanticPointer(value)
+                                    stack.append(value_sp)
+                                else:
+                                    # Default to NIL if address not found
+                                    stack.append(vocab['T_NIL'])
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return peep
+                peeper = nengo.Node(size_in=1, output=make_peep(self.stack, self.memory_registers, self.vocab))
+                nengo.Connection(self.input, peeper)
+                nengo.Connection(peeper, self.output)
+
+class PutCircuit(WordCircuit):
+    """! (value addr -- )
+    Store value at memory address
+    """
+    def __init__(self, stack, memory_registers, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.memory_registers = memory_registers
+        self.vocab = vocab
+
+        if isinstance(stack, list):
+            with self:
+                def make_put(stack, registers, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def put(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if len(stack) >= 2:
+                                addr = stack.pop()  # Address (top)
+                                value = stack.pop()  # Value
+                                # Use cleanup to find closest register address
+                                reg_name = cleanup(addr, vocab).name
+                                if reg_name in registers.bindings:
+                                    # Store value in register (this is simplified)
+                                    # In practice, you'd need to handle nengo connections
+                                    registers.bindings[reg_name].input = value.v
+                                print([p.name for p in stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return put
+                putter = nengo.Node(size_in=1, output=make_put(self.stack, self.memory_registers, self.vocab))
+                nengo.Connection(self.input, putter)
+                nengo.Connection(putter, self.output)
+
+class FuncCircuit(WordCircuit):
+    """: Start word definition
+    Begins compilation mode
+    """
+    def __init__(self, compilation_state, dictionary, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.compilation_state = compilation_state
+        self.dictionary = dictionary
+        self.vocab = vocab
+
+        if isinstance(compilation_state, list):
+            with self:
+                def make_func(comp_state, dictionary, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def func(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            # Enter compilation mode
+                            comp_state.append(vocab['COMPILING'])
+                            # Start new word definition
+                            dictionary.append([])  # New empty definition
+                            print("Starting word definition")
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return func
+                func_starter = nengo.Node(size_in=1, output=make_func(self.compilation_state, self.dictionary, self.vocab))
+                nengo.Connection(self.input, func_starter)
+                nengo.Connection(func_starter, self.output)
+
+class EndCircuit(WordCircuit):
+    """; End word definition
+    Ends compilation mode and creates word
+    """
+    def __init__(self, compilation_state, dictionary, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.compilation_state = compilation_state
+        self.dictionary = dictionary
+        self.vocab = vocab
+
+        if isinstance(compilation_state, list):
+            with self:
+                def make_end(comp_state, dictionary, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def end(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if comp_state and dictionary:
+                                # Exit compilation mode
+                                comp_state.pop()
+                                # Finalize word definition
+                                word_def = dictionary.pop()
+                                # Store in vocabulary (simplified)
+                                print(f"Ending word definition: {[w.name for w in word_def]}")
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return end
+                end_definer = nengo.Node(size_in=1, output=make_end(self.compilation_state, self.dictionary, self.vocab))
+                nengo.Connection(self.input, end_definer)
+                nengo.Connection(end_definer, self.output)
+
+class IfCircuit(WordCircuit):
+    """IF conditional execution
+    Pops flag, pushes control flow state
+    """
+    def __init__(self, stack, ctrl_flow_stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.stack = stack
+        self.ctrl_flow_stack = ctrl_flow_stack
+        self.vocab = vocab
+
+        if isinstance(stack, list) and isinstance(ctrl_flow_stack, list):
+            with self:
+                def make_if(stack, ctrl_stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def if_stmt(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if stack:
+                                flag = stack.pop()
+                                # Check if condition is true
+                                is_true = vcos(flag, vocab['TRUE']) > theta
+                                # Push execution state to control flow stack
+                                ctrl_stack.append(vocab['TRUE'] if is_true else vocab['FALSE'])
+                                print(f"IF: condition is {'true' if is_true else 'false'}")
+                                print([p.name for p in ctrl_stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return if_stmt
+                if_processor = nengo.Node(size_in=1, output=make_if(self.stack, self.ctrl_flow_stack, self.vocab))
+                nengo.Connection(self.input, if_processor)
+                nengo.Connection(if_processor, self.output)
+
+class ThenCircuit(WordCircuit):
+    """THEN end conditional
+    Pops control flow state
+    """
+    def __init__(self, ctrl_flow_stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ctrl_flow_stack = ctrl_flow_stack
+        self.vocab = vocab
+
+        if isinstance(ctrl_flow_stack, list):
+            with self:
+                def make_then(ctrl_stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def then_stmt(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if ctrl_stack:
+                                # Pop control flow state
+                                condition = ctrl_stack.pop()
+                                print(f"THEN: ending conditional block")
+                                print([p.name for p in ctrl_stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return then_stmt
+                then_processor = nengo.Node(size_in=1, output=make_then(self.ctrl_flow_stack, self.vocab))
+                nengo.Connection(self.input, then_processor)
+                nengo.Connection(then_processor, self.output)
+
+# Helper functions for list-based arithmetic
+def add_list_numbers(a, b, vocab):
+    """Add two list-encoded numbers"""
+    # Count depth of nested lists for a and b because for some reason, we utilize the fucking Peano construction
+    depth_a = count_list_depth(a, vocab)
+    #depth_b = count_list_depth(b, vocab)
+    
+    # Create result with depth = depth_a + depth_b again, because God cursed us with Peano... AAAGHHHHHHHHH
+    result = b  # Start with b
+    for i in range(depth_a):
+        result = cons(vocab['T_NIL'], result, vocab=vocab)
+    
+    return result
+
+def sub_list_numbers(a, b, vocab):
+    """Subtract two list-encoded numbers"""
+    depth_a = count_list_depth(a, vocab)
+    depth_b = count_list_depth(b, vocab)
+    
+    # Result depth = max(0, depth_a - depth_b)
+    result_depth = max(0, depth_a - depth_b)
+    
+    result = vocab['T_NIL']
+    for i in range(result_depth):
+        result = cons(result, vocab['T_NIL'])
+    
+    return result
+
+def count_list_depth(lst, vocab):
+    """Count nesting depth of list (NIL = 0, (NIL) = 1, etc.) iteratively."""
+    depth = 0
+    current = lst
+    while vcos(current, vocab['T_NIL']) < theta:
+        depth += 1
+        current = car(current, vocab)
+    return depth
 
 class UserFuncCircuit(WordCircuit):
     def __init__(self, keys={}, bindings={}, vocab=voc, *args, **kwargs):
@@ -616,11 +1074,11 @@ class UserFuncCircuit(WordCircuit):
                     to_controller = function
                     ctrl_sig = 1
                     stopwatch = t
-                elif state == 0 and go > theta and t > stopwatch + 0.25:
+                elif state == 0 and go > theta and t > stopwatch + t_ctrl:
                     ctrl_sig = 0
-                elif state == 0 and go > theta and t > stopwatch + 1.25:
+                elif state == 0 and go > theta and t > stopwatch + t_busy:
                     state = 1
-                elif state == 1 and go < theta and t > stopwatch + 1.75:
+                elif state == 1 and go < theta and t > stopwatch + t_done:
                     state = 0
                     stopwatch = 0
                 return np.concatenate([to_controller, ctrl_sig, state])
@@ -658,25 +1116,23 @@ class RegisterBank(spa.Network):
 
 model = spa.Network()
 with model:
-    kws = """Keywords:
+    kws = """Keywords: 
+        !           F_PUT
+        +           F_ADD
+        -           F_SUB
+        0=          F_ISZERO
         :           F_FUNC
         ;           F_END
-        >r          F_PUSHRET
-        swap        F_SWAP
         @           F_PEEP
-        rot         F_ROT
-        -           F_SUB
-        dup         F_DUP
-        !           F_PUT
-        r>          F_POPRET
-        0<          F_ISNEG
-        if          F_IF
-        else        F_ELSE
         drop        F_DROP
+        dup         F_DUP
+        if          F_IF
+        swap        F_SWAP
         then        F_THEN
-        execute     F_EXEC
     """
-
+    
+    # Need to add ROT command too, but will talk later about that, if we are doing return stack operations.
+    
     data_stack = SimpleStack(label="data_stack")
     return_stack = SimpleStack(label="return_stack")
     ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
@@ -705,23 +1161,20 @@ with model:
    
     wds_circuits = spa.Network()
     with wds_circuits:
-        circuits_dict = {"F_FUNC":      new_dummy("F_FUNC"),
-                         "F_END":       new_dummy("F_END"),
-                         "F_PUSHRET":   new_dummy("F_PUSHRET"),
-                         "F_SWAP":      SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
-                         'F_PEEP':      new_dummy("F_PEEP"), 
-                         'F_ROT':       new_dummy("F_ROT"),  
-                         'F_SUB':       new_dummy("F_SUB"), 
-                         'F_DUP':       new_dummy("F_DUP"),  
-                         'F_PUT':       new_dummy("F_PUT"),  
-                         'F_POPRET':    new_dummy("F_POPRET"),  
-                         'F_ISNEG':     new_dummy("F_ISNEG"),
-                         'F_IF':        new_dummy("F_IF"),
-                         'F_ELSE':      new_dummy("F_ELSE"),  
-                         'F_DROP':      new_dummy("F_DROP"),
-                         'F_THEN':      new_dummy("F_THEN"),
-                         'F_EXEC':      new_dummy("F_EXEC"),
-                         }
+        circuits_dict = {
+            "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),
+            "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"), 
+            "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
+            "F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit"),
+            "F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit"),
+            "F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit"),
+            "F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
+            "F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
+            "F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
+            "F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
+            "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
+            "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
+        }
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
@@ -738,7 +1191,12 @@ with model:
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
-    test_program = make_list(["APPLE", "CHERRY", "F_SWAP", "BANANA"], vocab=voc)
+    two = cons(voc['T_NIL'], cons(voc['T_NIL'], voc['T_NIL']))
+    three = cons(voc['T_NIL'], two)  # Using existing list
+    result = add_list_numbers(two, three, voc)
+    print(count_list_depth(result, voc))  # Should print 5
+    
+    test_program = make_list(["APPLE","CHERRY"], vocab=voc)
     
     voc.add(test_program.name, test_program.v)
     
