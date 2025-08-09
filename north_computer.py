@@ -157,7 +157,11 @@ def cleanup(u, vocab=voc):
         return vocab[unrolled[np.argmax(dots)][0]]
     return voc['Zero']
 
-def cons(h, t, vocab=voc, assoc_memory=assoc):
+def get_name(v, vocab=voc):
+    closest_sp = voc._keys[np.argmax(voc.dot(v))]
+    return closest_sp
+
+def cons(h, t, vocab=voc, assoc_memory=assoc, numeric=False):
 
     if is_list(t):
         if h.name not in vocab: vocab.add(h.name, h)
@@ -190,7 +194,13 @@ def cons(h, t, vocab=voc, assoc_memory=assoc):
             
             #print(list(assoc_memory.A.reverse.items()))
         new_sp = vocab['R_LEFT'] * h_ptr + vocab['R_RIGHT'] * t_ptr + vocab['R_PHI']
-        new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
+        new_name = ''
+        if numeric:
+            old_name = h.name.replace("Pointer_to_", "").replace("NUMBER_", "")
+            if old_name == "T_NIL": old_name = "0"
+            new_name = f'NUMBER_{int(old_name) + 1}'
+        else:
+            new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
         return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
     return cons(h, cons(t, vocab['T_NIL']), vocab=vocab)
 
@@ -718,7 +728,7 @@ class AddCircuit(WordCircuit):
                                 a = stack.pop()  # First operand
                                 # Addition: concatenate lists representing numbers (we utilize Peano based encoding, reference add_list_numbers())
                                 # a = (NIL) = 1, b = ((NIL)) = 2, result = (((NIL))) = 3 ; We know this is terrible, its all we had time for (final will use modular encoding)
-                                result = add_list_numbers(a, b, vocab)
+                                result = add_list_numbers(a, b, vocab=vocab)
                                 stack.append(result)
                                 print([p.name for p in stack])
                             stopwatch = t
@@ -732,6 +742,7 @@ class AddCircuit(WordCircuit):
                 adder = nengo.Node(size_in=1, output=make_add(self.stack, self.vocab))
                 nengo.Connection(self.input, adder)
                 nengo.Connection(adder, self.output)
+
 
 class SubCircuit(WordCircuit):
     """(a b -- c)
@@ -1041,7 +1052,7 @@ class ThenCircuit(WordCircuit):
                 nengo.Connection(then_processor, self.output)
 
 # Helper functions for list-based arithmetic
-def add_list_numbers(a, b, vocab):
+def add_list_numbers(a, b, vocab=voc):
     """Add two list-encoded numbers"""
     # Count depth of nested lists for a and b because for some reason, we utilize the fucking Peano construction
     depth_a = count_list_depth(a, vocab)
@@ -1050,8 +1061,10 @@ def add_list_numbers(a, b, vocab):
     # Create result with depth = depth_a + depth_b again, because God cursed us with Peano... AAAGHHHHHHHHH
     result = b  # Start with b
     for i in range(depth_a):
-        result = cons(vocab['T_NIL'], result, vocab=vocab)
-    
+        result = cons(result, vocab['T_NIL'], vocab=vocab, numeric=True)
+   
+    if result.name not in vocab:
+        vocab.add(result.name, result)
     return result
 
 def sub_list_numbers(a, b, vocab):
@@ -1064,7 +1077,7 @@ def sub_list_numbers(a, b, vocab):
     
     result = vocab['T_NIL']
     for i in range(result_depth):
-        result = cons(result, vocab['T_NIL'])
+        result = cons(result, vocab['T_NIL'], vocab=vocab, numeric=True)
     
     return result
 
@@ -1209,14 +1222,16 @@ with model:
     def make_peano_number(n, vocab):
         num = vocab['T_NIL']
         for _ in range(n):
-            num = cons(vocab['T_NIL'], num, vocab=vocab)
+            num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
+        vocab.add(num.name, num)
         return num
     
     num1 = make_peano_number(1, voc)
     num2 = make_peano_number(2, voc)
-    
-    voc.add("NUMBER_1", num1.v)
-    voc.add("NUMBER_2", num2.v)
+    num3 = make_peano_number(3, voc)
+    num4 = make_peano_number(4, voc)
+    num5 = make_peano_number(5, voc)
+    num6 = make_peano_number(6, voc)
     
     test_program = make_list(["APPLE","NUMBER_1","NUMBER_1","F_ADD","NUMBER_1","F_ADD","NUMBER_1","F_ADD"], vocab=voc)
     
