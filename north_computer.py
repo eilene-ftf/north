@@ -278,7 +278,7 @@ class ControlUnit(spa.Network):
             # May need to be changed, seems like it might behave weirdly if 
             # there are multiple words in a row or processing a word takes a 
             # long time
-            resume = RisingEdgeDetector(tau=1.5, bias=0, label="resume")
+            resume = RisingEdgeDetector(tau=0.75 * clock_tick, bias=0, label="resume")
             nengo.Connection(self.word_busy, resume.input)
             nengo.Connection(resume.output, mod_node[-1])
             
