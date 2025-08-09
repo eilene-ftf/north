@@ -37,6 +37,9 @@ def make_stack_in(stack):
             if vcos(inp, vocab['S_PUSH']) > theta:
                 stack.append(cleanup(inp - vocab['S_PUSH']))
                 print([p.name for p in stack])
+            elif vcos(inp, vocab['S_PEEK']) > theta:
+                out = vocab['S_PEEK'].v
+                print([p.name for p in stack])
             elif vcos(inp, vocab['S_POP']) > theta:
                 out = vocab['S_POP'].v
                 print([p.name for p in stack])
@@ -63,7 +66,12 @@ def make_stack_out(stack):
         if sigout == 0 and sig > 1-theta:
             sigout = 1
             stopwatch = t
-            if vcos(inp, vocab['S_POP']) > theta:
+            if vcos(inp, vocab['S_PEEK']) > theta:
+                if stack:
+                    state = stack[-1].v
+                else:
+                    state = vocab['S_CODE_ERR_STACKEMPTY'].v
+            elif vcos(inp, vocab['S_POP']) > theta:
                 if stack:
                     state = stack.pop().v
                 else:
@@ -468,16 +476,27 @@ class SemanticNode(nengo.Node):
         return nengo.Connection(self, other, **kwargs)
 
 class Dispatcher(spa.Network):
-    def __init__(self, inp, circuits_dict, busy_node, label="dispatcher", vocab=voc):
+    def __init__(self, circuits, busy_node, label="dispatcher", vocab=voc):
         super().__init__(label=label)
         
-        self.circuits_dict = circuits_dict
+        self.circuits_dict = circuits.circuits_dict
+        d = vocab.dimensions
         
         with self:
-            self.input = SemanticNode(size_in=vocab.dimensions)
-            
+            self.input = SemanticNode(size_in=d)
+       
             in_reg = spa.State(vocab)
             nengo.Connection(self.input, in_reg.input, label="in_reg")
+
+            self.holo_node = nengo.Node(size_in=d, label="holo node")
+            holodot = SemanticNode(
+                    size_in=d*2, 
+                    size_out=1, 
+                    output=lambda t, x: 4 * (x[:d] @ x[d:]), 
+                    label="holodot"
+                    )
+            nengo.Connection(self.holo_node, holodot[:d])
+            nengo.Connection(self.input, holodot[d:])
 
             #go = spa.SemanticPointer([1], name="S_GO")
             go = SemanticNode([1], label="GO!")
@@ -488,13 +507,14 @@ class Dispatcher(spa.Network):
             switch = spa.ActionSelection()
             with switch:
                 spa.ifmax(theta, RoutedConnection(go, wait))
-                for keyword, circuit in circuits_dict.items():
+                for keyword, circuit in circuits.circuits_dict.items():
                     spa.ifmax(
                             in_reg @ vocab[keyword],
                             RoutedConnection(go, circuit),
                             )
+                spa.ifmax(holodot, RoutedConnection(go, circuits.user_func_circuit))
         
-        for keyword, circuit in circuits_dict.items():
+        for keyword, circuit in circuits.circuits_dict.items():
             nengo.Connection(circuit.input, busy_node[0])
             nengo.Connection(circuit.output, busy_node[1])
 
@@ -1108,7 +1128,7 @@ class DupCircuit(WordCircuit):
                 nengo.Connection(dupper, self.output)
 
 class UserFuncCircuit(WordCircuit):
-    def __init__(self, func_register, func_controller, keys={}, bindings={}, vocab=voc, *args, **kwargs):
+    def __init__(self, keys={}, bindings={}, vocab=voc, *args, **kwargs):
         super().__init__(*args, *kwargs)
 
         d = vocab.dimensions
@@ -1116,6 +1136,7 @@ class UserFuncCircuit(WordCircuit):
         self.bindings = bindings # dictionary associating keywords to function defs
         self.holo = sum(keys.values())
         
+
         def make_prog_table(keys, bindings):
             state = 0
             stopwatch = 0
@@ -1139,14 +1160,20 @@ class UserFuncCircuit(WordCircuit):
                 elif state == 1 and go < theta and t > stopwatch + t_done:
                     state = 0
                     stopwatch = 0
-                return np.concatenate([to_controller, ctrl_sig, state])
+                return np.concatenate([to_controller, [ctrl_sig, state]])
             return prog_table
-        program_table = nengo.Node(size_in=1, output=make_prog_table(self.keys, self.bindings))
-        nengo.Connection(program_table[:d], func_controller.input)
-        nengo.Connection(program_table[-2], func_controller.sigin)
-
-        nengo.Connection(self.input, program_table[-1])
-        nengo.Connection(program_table[-1], self.output)
+        with self:
+            self.func_key = nengo.Node(size_in=d) 
+            program_table = nengo.Node(size_in=d+1, output=make_prog_table(self.keys, self.bindings))
+            nengo.Connection(self.func_key, program_table[:d])
+            nengo.Connection(self.input, program_table[-1])
+        
+            self.retrieved_func = nengo.Node(size_in=d)
+            self.ctrl_sigout = nengo.Node(size_in=1)
+            self.holo_node = nengo.Node(size_out=d, output=lambda _: self.holo)
+            nengo.Connection(program_table[:d], self.retrieved_func)
+            nengo.Connection(program_table[-2], self.ctrl_sigout)
+            nengo.Connection(program_table[-1], self.output)
 
 class RegisterBank(spa.Network):
     def __init__(self, names, vocab=voc, *args, **kwargs):
@@ -1163,17 +1190,18 @@ class RegisterBank(spa.Network):
 model = spa.Network()
 with model:
     kws = """Keywords: 
+        :           F_FUNC
+        ;           F_END
         !           F_PUT
+        @           F_PEEP
         +           F_ADD
         -           F_SUB
         0=          F_ISZERO
-        :           F_FUNC
-        ;           F_END
-        @           F_PEEP
         drop        F_DROP
         dup         F_DUP
-        if          F_IF
         swap        F_SWAP
+        if          F_IF
+        else        F_ELSE
         then        F_THEN
     """
     
@@ -1205,9 +1233,9 @@ with model:
 
         return dummy_circuit
    
-    wds_circuits = spa.Network()
+    wds_circuits = spa.Network("Words Circuits")
     with wds_circuits:
-        circuits_dict = {
+        wds_circuits.circuits_dict = {
             "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),
             "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"), 
             "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
@@ -1221,10 +1249,14 @@ with model:
             "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
             "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
         }
+        
+        wds_circuits.user_func_circuit = UserFuncCircuit()
+
+    
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "APPLE", "BANANA", "CHERRY",
-                 "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
-                 ] + list(circuits_dict.keys())
+                 "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
+                 ] + list(wds_circuits.circuits_dict.keys())
     voc.populate("; ".join(voc_items))
 
     # holo = sum([voc[c].v for c in circuits_dict.keys()])
@@ -1252,7 +1284,7 @@ with model:
     nengo.Connection(inp.output, data_stack.input)
     nengo.Connection(data_stack.output, out.input)
 
-    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=circuits_dict)
+    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict)
 
     
     nengo.Connection(control_unit.to_data_stack, inp.input)
@@ -1263,6 +1295,7 @@ with model:
     busy_node = nengo.Node(output=make_busy_signal(), size_in=2, size_out=1, label="busy_node")
     nengo.Connection(busy_node, control_unit.word_busy)
 
-    dispatcher = Dispatcher(inp, circuits_dict, busy_node, vocab=voc)
+    dispatcher = Dispatcher(wds_circuits, busy_node, vocab=voc)
 
     nengo.Connection(control_unit.to_dispatcher, dispatcher.input)
+    nengo.Connection(wds_circuits.user_func_circuit.holo_node, dispatcher.holo_node)
