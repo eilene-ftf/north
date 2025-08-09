@@ -8,6 +8,14 @@ from collections import UserDict
 
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
+t_stack = 0.2
+t_ctrl = 0.25
+t_busy = 1.25
+t_done = 1.75
+clock_tick = 2.0
+
+assert t_ctrl < t_busy and t_busy < t_done
+
 voc = spa.Vocabulary(d)
 
 
@@ -35,7 +43,7 @@ def make_stack_in(stack):
             elif vcos(inp, vocab['S_DUMP']) > theta:
                 del stack[:]
                 print([p.name for p in stack])
-        if state == 1 and sig < theta and t > stopwatch + 0.2:
+        if state == 1 and sig < theta and t > stopwatch + t_stack:
             state = 0
             out = np.zeros(d)
         # print([v.name for v in stack])
@@ -60,7 +68,7 @@ def make_stack_out(stack):
                     state = stack.pop().v
                 else:
                     state = vocab['S_CODE_ERR_STACKEMPTY'].v
-        if sigout == 1 and t > stopwatch + 0.2:
+        if sigout == 1 and t > stopwatch + t_stack:
             sigout = 0
         return np.concatenate((state, [sigout]))
     
@@ -576,9 +584,9 @@ class SwapCircuit(WordCircuit):
                                 stack[-2:] = stack[:-3:-1]
                                 stopwatch = t
                             print([p.name for p in stack])
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -616,9 +624,9 @@ class DupCircuit(WordCircuit):
                                 stack.append(temp)
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -648,9 +656,9 @@ class DropCircuit(WordCircuit):
                                 stack.pop()
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -686,9 +694,9 @@ class AddCircuit(WordCircuit):
                                 stack.append(result)
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -723,9 +731,9 @@ class SubCircuit(WordCircuit):
                                 stack.append(result)
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -760,9 +768,9 @@ class IsZeroCircuit(WordCircuit):
                                 stack.append(flag)
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -804,9 +812,9 @@ class PeepCircuit(WordCircuit):
                                     stack.append(vocab['T_NIL'])
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -845,9 +853,9 @@ class PutCircuit(WordCircuit):
                                     registers.bindings[reg_name].input = value.v
                                 print([p.name for p in stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -881,9 +889,9 @@ class FuncCircuit(WordCircuit):
                             dictionary.append([])  # New empty definition
                             print("Starting word definition")
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -919,9 +927,9 @@ class EndCircuit(WordCircuit):
                                 # Store in vocabulary (simplified)
                                 print(f"Ending word definition: {[w.name for w in word_def]}")
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -958,9 +966,9 @@ class IfCircuit(WordCircuit):
                                 print(f"IF: condition is {'true' if is_true else 'false'}")
                                 print([p.name for p in ctrl_stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -993,9 +1001,9 @@ class ThenCircuit(WordCircuit):
                                 print(f"THEN: ending conditional block")
                                 print([p.name for p in ctrl_stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                        elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                        elif state == 1 and go < theta and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
                         return state
@@ -1065,11 +1073,11 @@ class UserFuncCircuit(WordCircuit):
                     to_controller = function
                     ctrl_sig = 1
                     stopwatch = t
-                elif state == 0 and go > theta and t > stopwatch + 0.25:
+                elif state == 0 and go > theta and t > stopwatch + t_ctrl:
                     ctrl_sig = 0
-                elif state == 0 and go > theta and t > stopwatch + 1.25:
+                elif state == 0 and go > theta and t > stopwatch + t_busy:
                     state = 1
-                elif state == 1 and go < theta and t > stopwatch + 1.75:
+                elif state == 1 and go < theta and t > stopwatch + t_done:
                     state = 0
                     stopwatch = 0
                 return np.concatenate([to_controller, ctrl_sig, state])
