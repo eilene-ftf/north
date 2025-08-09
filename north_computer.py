@@ -598,6 +598,7 @@ class UserFuncCircuit(WordCircuit):
         d = vocab.dimensions
         self.keys = keys # dictionary associating keywords to vector-encoded forth words
         self.bindings = bindings # dictionary associating keywords to function defs
+        self.holo = sum(keys.values())
         
         def make_prog_table(keys, bindings):
             state = 0
