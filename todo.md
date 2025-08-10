@@ -21,9 +21,9 @@
     - [ ] circuit   `@          F_PEEP      `
     - [ ] circuit   `!          F_PUT       `
     - [x] circuit   `SWAP       F_SWAP      `
-    - [ ] circuit   `DUP        F_DUP       `
+    - [x] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
-    - [ ] circuit   `DROP       F_DROP      `
+    - [x] circuit   `DROP       F_DROP      `
     - [ ] circuit   `0<         F_ISNEG     `
     - [ ] circuit   `IF         F_IF        `
     - [ ] circuit   `THEN       F_THEN      `
