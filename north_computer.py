@@ -19,7 +19,7 @@ assert t_ctrl < t_busy and t_busy < t_done
 voc = spa.Vocabulary(d)
 
 
-def make_stack_in(stack):
+def make_stack_in(stack, tag='stack'):
     stopwatch = 0
     state = 0
     out = np.zeros(d)
@@ -28,24 +28,25 @@ def make_stack_in(stack):
         nonlocal stopwatch, state, out
         if t < 0.1 and stack:
             del stack[:]
-            print([p.name for p in stack])
+            print(f'{tag} state: {[p.name for p in stack]}')
         sig = x[d]
         inp = spa.SemanticPointer(x[:d])
+        #if tag == "call_stack": print(sig, state)
         if state == 0 and sig > 1-theta:
             state = 1
             stopwatch = t
             if vcos(inp, vocab['S_PUSH']) > theta:
                 stack.append(cleanup(inp - vocab['S_PUSH']))
-                print([p.name for p in stack])
+                print(f'{tag} state: {[p.name for p in stack]}')
             elif vcos(inp, vocab['S_PEEK']) > theta:
                 out = vocab['S_PEEK'].v
-                print([p.name for p in stack])
+                print(f'{tag} state: {[p.name for p in stack]}')
             elif vcos(inp, vocab['S_POP']) > theta:
                 out = vocab['S_POP'].v
-                print([p.name for p in stack])
+                print(f'{tag} state: {[p.name for p in stack]}')
             elif vcos(inp, vocab['S_DUMP']) > theta:
                 del stack[:]
-                print([p.name for p in stack])
+                print(f'{tag} state: {[p.name for p in stack]}')
         if state == 1 and sig < theta and t > stopwatch + t_stack:
             state = 0
             out = np.zeros(d)
@@ -243,26 +244,26 @@ def dereference(t, x):
     return cleanup(spa.SemanticPointer(x), vocab=voc).v            
             
 class ControlUnit(spa.Network):
-    def __init__(self, circuits, d=d, theta=theta, items=None, label="ControlUnit", voc=spa.Vocabulary(d), assoc_memory=assoc):
+    def __init__(self, circuits, d=d, theta=theta, items=None, label="ControlUnit", vocab=spa.Vocabulary(d), assoc_memory=assoc):
         super().__init__(label=label)
         self.d = d
         self.theta = theta
-        self.voc = voc
-        to_add = [l for l in ['R_LEFT', 'R_RIGHT', 'R_PHI', 'T_NIL'] if l not in voc]
-        voc.populate(';'.join(to_add))
+        self.vocab = vocab
+        to_add = [l for l in ['R_LEFT', 'R_RIGHT', 'R_PHI', 'T_NIL'] if l not in vocab]
+        vocab.populate(';'.join(to_add))
         self.assoc_memory = assoc_memory
         
         self.vector_numbers = items.v
             
         with self:
             # Labeled states
-            R_state = spa.State(self.voc, label="R_register")
-            H_state = spa.State(self.voc, label="head_register")
-            T_state = spa.State(self.voc, label="tail_register")
-            output_state = spa.State(self.voc, label="output_register")
+            R_state = spa.State(self.vocab, label="R_register")
+            H_state = spa.State(self.vocab, label="head_register")
+            T_state = spa.State(self.vocab, label="tail_register")
+            output_state = spa.State(self.vocab, label="output_register")
             
             mod_node = nengo.Node(
-                create_modification_node(voc, circuits=circuits, theta=theta),
+                create_modification_node(vocab, circuits=circuits, theta=theta),
                 size_in=2*d+1,
                 size_out=2*d+1,
                 label="mod_node"
@@ -296,8 +297,8 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.word_busy, resume.input)
             nengo.Connection(resume.output, mod_node[-1])
             
-            def cleanup_node(t, x, vocab=self.voc):
-                return cleanup(x, vocab=voc).v
+            def cleanup_node(t, x, vocab=self.vocab):
+                return cleanup(x, vocab=vocab).v
             
             def gate_transmission(t,x):
                 return x if t < 1.0 else np.zeros(self.d)
@@ -313,11 +314,11 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.input_node, transmission_gate)
             nengo.Connection(transmission_gate, R_state.input)
 
-            noisy_h = spa.State(self.voc, label="noisy_head")
-            noisy_t = spa.State(self.voc, label="noisy_tail")
+            noisy_h = spa.State(self.vocab, label="noisy_head")
+            noisy_t = spa.State(self.vocab, label="noisy_tail")
             
-            (~self.voc['R_LEFT'] * R_state) >> noisy_h
-            (~self.voc['R_RIGHT'] * R_state) >> noisy_t
+            (~self.vocab['R_LEFT'] * R_state) >> noisy_h
+            (~self.vocab['R_RIGHT'] * R_state) >> noisy_t
             
             tail_cleanup = nengo.Node(
                 dereference, 
@@ -331,7 +332,7 @@ class ControlUnit(spa.Network):
             nengo.Connection(noisy_h.output, head_cleanup)
             nengo.Connection(head_cleanup, H_state.input)
             nengo.Connection(noisy_t.output, tail_cleanup)
-            nengo.Connection(tail_cleanup, T_state.input)
+            #nengo.Connection(tail_cleanup, T_state.input)
             
             self.trigger = nengo.Node(
                 lambda t: 1.0 if (t % 2) < 0.1 else 0.0, 
@@ -345,7 +346,7 @@ class ControlUnit(spa.Network):
                 R_vec = x[0:self.d]
                 edge_detected = x[self.d]
                 pause = x[self.d + 1]
-                dot_val = np.dot(R_vec, self.voc['T_NIL'].v)
+                dot_val = np.dot(R_vec, self.vocab['T_NIL'].v)
                 not_nil = 1.0 if dot_val < 0.9 else 0.0
                 return [not_nil * (edge_detected > 0.5) * (pause < theta)]
             
@@ -424,7 +425,6 @@ class ControlUnit(spa.Network):
             nengo.Connection(T_state.output, t_gate_node[self.d:2*self.d])
             nengo.Connection(latch_node, t_gate_node[2*self.d])
             nengo.Connection(mod_node[-1], t_gate_node[-1])
-            nengo.Connection(t_gate_node, T_state.input, synapse=0.01)
             
             nengo.Connection(H_state.output, output_state.input)
             
@@ -432,7 +432,7 @@ class ControlUnit(spa.Network):
                 T_vec = x[0:self.d]
                 R_vec = x[self.d:2*self.d]
                 cond = x[2*self.d]
-                return cleanup(spa.SemanticPointer(T_vec if cond > 0.5 else R_vec), vocab=self.voc).v
+                return cleanup(spa.SemanticPointer(T_vec if cond > 0.5 else R_vec), vocab=self.vocab).v
             
             gate_node_R = nengo.Node(
                 update_R, 
@@ -445,17 +445,82 @@ class ControlUnit(spa.Network):
             nengo.Connection(condition_node, gate_node_R[2*self.d])
             nengo.Connection(gate_node_R, R_state.input, synapse=0.05)
             
-            
-            
+            def make_func_ctrl(vocab=voc):
+                d = vocab.dimensions
+                state = 0
+                stopwatch = 0
+                to_return = np.zeros(d)
+                def function_controller(t, x):
+                    nonlocal state, to_return
+                    from_R_state = x[:d]
+                    from_user_func = x[d:d*2]
+                    ctrl_signal = x[-1]
+                    stack_done_signal = x[-2]
 
+                    pushmag = (from_R_state @ vocab['S_PUSH'].v)
+                    if pushmag > theta:
+                        from_R_state -= vocab['S_PUSH'].v
+
+                    if ctrl_signal < theta and state == 0:
+                        return np.concatenate([from_R_state, [0, state]])
+                    elif ctrl_signal > theta and state == 0 and stack_done_signal < theta:
+                        state = 1 # push state
+                        to_return = np.concatenate([from_R_state + vocab['S_PUSH'].v, [0, state]])
+                    elif state == 1 and stack_done_signal > theta:
+                        stopwatch = t
+                        state = 2 # move retrieved function to T_state
+                        to_return = np.concatenate([from_user_func, [0, state]])
+                    elif state == 2 and t > stopwatch + t_ctrl:
+                        state = 3 # done, wait for reset
+                    elif state == 3 and clock > 1-theta:
+                        state = 0 # reset
+                    # need to add reset trigger on resume
+
+                    return to_return
+
+                return function_controller
+
+                
+
+            self.func_ctrl_sigin = nengo.Node(size_in=1)
+            self.call_stack_sigin = nengo.Node(size_in=1)
+            self.from_user_func = nengo.Node(size_in=d)
+            self.func_ctrl = nengo.Node(size_in=d*2+2, 
+                                        output=make_func_ctrl(vocab=vocab), 
+                                        label="func_ctrl")
+            nengo.Connection(self.func_ctrl_sigin, self.func_ctrl[-1]) 
+            nengo.Connection(self.call_stack_sigin, self.func_ctrl[-2])
+            nengo.Connection(t_gate_node, self.func_ctrl[:d], synapse=0.01)
+            nengo.Connection(self.from_user_func, self.func_ctrl[d:d*2])
+
+            nengo.Connection(self.func_ctrl[:d], T_state.input) 
+
+            self.to_call_stack = nengo.Node(size_in=d)
+            self.call_stack_sigout = nengo.Node(size_in=1, 
+                                                size_out=1, 
+                                                output=lambda t, x: [x[0] > 1-theta and x[0] < 1+theta]
+                                                )
+            nengo.Connection(T_state.output, self.to_call_stack)
+            nengo.Connection(self.func_ctrl[-1], self.call_stack_sigout)
+
+            self.suppress_user_func = nengo.Node(size_in=1,
+                                                 size_out=1,
+                                                 output=lambda t, x: [-1 * (x[0] > 3-theta and x[0] < 3+theta)]
+                                                 )
+
+            nengo.Connection(self.func_ctrl[-1], self.suppress_user_func)
+            
+    
 class SimpleStack(spa.Network):
-    def __init__(self, d=d, label="stack memory"):
+    def __init__(self, stack=[], d=d, label="stack memory"):
         super().__init__(label=label)
         self.d = d
-        self.stack = []
+        self.stack = stack
         
         with self:
-            stack_in = nengo.Node(size_in=self.d+1, output=make_stack_in(self.stack), label="stack_in")
+            stack_in = nengo.Node(size_in=self.d+1, 
+                                  output=make_stack_in(self.stack, tag=self.label), 
+                                  label="stack_in")
             stack_out = nengo.Node(size_in=self.d+1, output=make_stack_out(self.stack), label="stack_out")
             
             self.sigin = nengo.Node(size_in=1, label="sigin")
@@ -530,6 +595,9 @@ class Dispatcher(spa.Network):
         for keyword, circuit in circuits.circuits_dict.items():
             nengo.Connection(circuit.input, busy_node[0])
             nengo.Connection(circuit.output, busy_node[1])
+
+        nengo.Connection(circuits.user_func_circuit.input, busy_node[0])
+        nengo.Connection(circuits.user_func_circuit.output, busy_node[1])
 
         #print(list(circuits_dict.items())[:4])
 
@@ -1245,11 +1313,6 @@ with model:
 
     # Need to add ROT command too, but will talk later about that, if we are doing return stack operations.
     
-    data_stack = SimpleStack(label="data_stack")
-    #return_stack = SimpleStack(label="return_stack")
-    #ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
-    #call_stack = SimpleStack(label="call_stack")
-
     #registers = RegisterBank(
     #        ['R1', 'R2', 'R3', 'R4', 'R5', 
     #         'I1', 'I2', 'I3', 
@@ -1270,6 +1333,7 @@ with model:
             dummy_circuit.output = dummy_circuit.sigout
 
         return dummy_circuit
+    data_stack = SimpleStack(label="data_stack")
    
     wds_circuits = spa.Network("Words Circuits")
     with wds_circuits:
@@ -1291,7 +1355,7 @@ with model:
         voc.populate('; '.join(list(wds_circuits.circuits_dict.keys())))
         
         fruits = ['APPLE', 'BANANA', 'CHERRY', 'DURIAN', 'ELDERBERRY', 'FIG', 'GUAVA', 'HYUGANATSU', 
-                  'IMBE', 'JACKFRUIT', 'KUMQUAT', 'LYCHEE', 'MANGO', 'NECTARINE', 'ORANGE', 'PEAR', 
+                  'IMBE', 'JACKFRUIT', 'KUMQUAT', 'LYCHEE', 'MANGO', 'NECTARINE', 'ORANGE', 'PINEAPPLE', 
                   'QUINCE', 'RASPBERRY', 'SASKATOON', 'TANGERINE', 'UNNAB', 'VOAVANGA', 'WATERMELON', 
                   'XOCONOSTLE', 'YUZU', 'ZWETSCHGE']
         voc.populate('; '.join(fruits))
@@ -1305,6 +1369,11 @@ with model:
 
         print(wds_circuits.user_func_circuit.table)
         print([v.name for v in wds_circuits.user_func_circuit.bindings.values()])
+
+    #return_stack = SimpleStack(label="return_stack")
+    #ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
+    call_stack = SimpleStack(stack=[make_list(["SASKATOON", "YUZU", "F_DUP"])],
+                             label="call_stack")
 
 
 
@@ -1322,7 +1391,8 @@ with model:
     result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list(["FRUITSWAP"], vocab=voc)
+    test_program = make_list(["FRUITSWAP", "CHERRY", "PINEAPPLE", "RASPBERRY"], vocab=voc)
+    #test_program = make_list(["CHERRY", "PINEAPPLE", "RASPBERRY"], vocab=voc)
     
     #voc.add(test_program.name, test_program.v)
     
@@ -1333,12 +1403,15 @@ with model:
     nengo.Connection(inp.output, data_stack.input)
     nengo.Connection(data_stack.output, out.input)
 
-    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict)
+    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", vocab=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict)
 
     
     nengo.Connection(control_unit.to_data_stack, inp.input)
     
     nengo.Connection(control_unit.trigger, data_stack.sigin)
+
+    nengo.Connection(control_unit.to_call_stack, call_stack.input)
+    nengo.Connection(control_unit.call_stack_sigout, call_stack.sigin)
     
     
     busy_node = nengo.Node(output=make_busy_signal(), size_in=2, size_out=1, label="busy_node")
@@ -1350,6 +1423,10 @@ with model:
     nengo.Connection(control_unit.to_dispatcher, wds_circuits.user_func_circuit.func_key)
     nengo.Connection(wds_circuits.user_func_circuit.holo_node, dispatcher.holo_node)
     nengo.Connection(wds_circuits.user_func_circuit.holo_node, control_unit.holo_node)
+    nengo.Connection(wds_circuits.user_func_circuit.ctrl_sigout, control_unit.func_ctrl_sigin)
+    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, control_unit.from_user_func)
+    nengo.Connection(call_stack.sigout, control_unit.call_stack_sigin)
+    nengo.Connection(control_unit.suppress_user_func, wds_circuits.user_func_circuit.output)
 
     function_decoder = spa.State(voc)
     nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)
