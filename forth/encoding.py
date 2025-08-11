@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 import numpy.fft as fft
 
-from .lex import WORD_TAG_DICT, Word, wordtype2str
+from .lex import WORD_TAG_DICT, Word, wordtype2str, WordType
 
 __all__ = [
     "HeteroAssoc",
@@ -20,6 +20,7 @@ __all__ = [
     "Codebook",
     "EncodingEnvironment",
     "encode",
+    "savez",
 ]
 
 _FileLike = typing.Union[str, Path]
@@ -81,8 +82,8 @@ class HeteroAssoc:
 
         # Otherwise, store the trace as a new row
         if self.stored_traces >= self.capacity:
-            self.A = np.concatenate([self.A, np.zeros((self.capacity, self.dim))])  # type: ignore
-            self.P = np.concatenate([self.P, np.zeros((self.capacity, self.dim))])  # type: ignore
+            self.A = np.concatenate([self.A, np.zeros((self.capacity, self.dim_A))])  # type: ignore
+            self.P = np.concatenate([self.P, np.zeros((self.capacity, self.dim_P))])  # type: ignore
             self.capacity *= 2
         self.A[self.stored_traces, :] = x
         self.P[self.stored_traces, :] = y
@@ -256,7 +257,7 @@ class AutoAssoc:
         assoc.savez(outfile)
         _ = outfile.seek(0) # Only needed to simulate closing and reopening the file
         npzfile = np.load(outfile)
-        print(npz.files) # ["stored_traces", "dim", "W"]
+        print(npzfiles.files) # ["stored_traces", "dim", "W"]
         W = npzfile["W"]
         ```
         """
@@ -337,9 +338,16 @@ class Codebook(UserDict):
 
     def initialize(self) -> None:
         self._initialized = True
-        for value in WORD_TAG_DICT.values():
-            name = str(value).removeprefix("WordType.")
-            self.data[name] = random(1, self.dim).squeeze()
+
+        # Names for words
+        for value in WordType._member_names_:
+            self.data[value] = random(1, self.dim).squeeze()
+
+        # Structural items
+        self.data["___lhs"] = random(1, self.dim).squeeze()
+        self.data["___rhs"] = random(1, self.dim).squeeze()
+        self.data["___phi"] = random(1, self.dim).squeeze()
+        self.data["___nil"] = random(1, self.dim).squeeze()
 
 
 @dataclass
@@ -356,9 +364,9 @@ class EncodingEnvironment:
 
     def savez(self, to_save: _FileLike) -> None:
         to_save = Path(to_save)
-        codebook_file = to_save / "_codebook.npz"
-        assoc_mem_file = to_save / "_assoc_mem.npz"
-        cleanup_mem_file = to_save / "_cleanup_mem.npz"
+        codebook_file = to_save / "codebook"
+        assoc_mem_file = to_save / "assoc_mem"
+        cleanup_mem_file = to_save / "cleanup_mem"
 
         self.codebook.savez(codebook_file)
         self.assoc_mem.savez(assoc_mem_file)
@@ -396,9 +404,9 @@ def make_cons(
     enc_env.cleanup_mem.write(rhs)
     ptr = random(1, enc_env.codebook.dim).squeeze()
     rfpair = (
-        cconv(lhs, enc_env.codebook["lhs"])
-        + cconv(rhs, enc_env.codebook["rhs"])
-        + enc_env.codebook["phi"]
+        cconv(lhs, enc_env.codebook["___lhs"])
+        + cconv(rhs, enc_env.codebook["___rhs"])
+        + enc_env.codebook["___phi"]
     )
     norm = np.linalg.vector_norm(rfpair)
     norm = max(norm, 1e-8)
@@ -408,7 +416,7 @@ def make_cons(
 
 
 def cons(xs: list[np.ndarray], enc_env: EncodingEnvironment) -> np.ndarray:
-    base = enc_env.codebook["nil"]
+    base = enc_env.codebook["___nil"]
     for x in reversed(xs):
         base = make_cons(x, base, enc_env)
     return base
@@ -434,3 +442,22 @@ def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
         encoded_words.append(encoded_value)
 
     return cons(encoded_words, enc_env)
+
+
+def savez(
+    file: _FileLike, encoded_representation: np.ndarray, enc_env: EncodingEnvironment
+) -> None:
+    """Serialize the results of an encoding.
+
+    Args:
+        file _FileLike: File-like object.
+        encoded_representation np.ndarray: ``(d,)`` high-dimensional vector.
+        enc_env EncodingEnvironment: The encoding environment.
+    """
+
+    path = Path(file)
+    if not path.exists():
+        path.mkdir()
+    encoded_representation_path = path / "embeddings"
+    np.savez(encoded_representation_path, embeddings=encoded_representation)
+    enc_env.savez(file)

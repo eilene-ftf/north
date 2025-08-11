@@ -1,0 +1,11 @@
+[project]
+name = "north"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "nengo>=4.1.0",
+    "nengo-spa>=2.0.0",
+    "numpy>=2.2.6",
+]

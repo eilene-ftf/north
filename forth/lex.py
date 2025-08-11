@@ -476,8 +476,7 @@ def lex(src: str) -> list[Word]:
     for word in src_words:
         if word in WORD_TAG_DICT:
             word_rec.append(Word(WORD_TAG_DICT[word], word))
-        elif word.isalnum():
-            word_rec.append(Word(WORD_TAG_DICT[word], word))
         else:
-            raise LexicalAnalysisError(f"Unrecognized WORD: {word}")
+            word_rec.append(Word(WordType.IDENT, word))
+    word_rec.append(Word(WordType.EOF, "<EOF>"))
     return word_rec
