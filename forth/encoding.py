@@ -21,6 +21,8 @@ __all__ = [
     "EncodingEnvironment",
     "encode",
     "savez",
+    "cconv",
+    "invert",
 ]
 
 _FileLike = typing.Union[str, Path]
@@ -103,7 +105,7 @@ class HeteroAssoc:
             The recalled pattern from ``x``.
         """
 
-        if len(x.shape > 1):
+        if len(x.shape) > 1:
             x = x.squeeze()
 
         similarities = self.A @ x
@@ -438,8 +440,15 @@ def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
     encoded_words = []
     for word in words:
         wordtype = word.tag
-        encoded_value = enc_env.codebook[wordtype2str(wordtype)]
-        encoded_words.append(encoded_value)
+        if wordtype == WordType.IDENT:
+            cont = word.cont
+            if cont not in enc_env.codebook:
+                enc_env.codebook[cont] = random(1, enc_env.codebook.dim).squeeze()
+            encoded_value = enc_env.codebook[cont]
+            encoded_words.append(encoded_value)
+        else:
+            encoded_value = enc_env.codebook[wordtype2str(wordtype)]
+            encoded_words.append(encoded_value)
 
     return cons(encoded_words, enc_env)
 

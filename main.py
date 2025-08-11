@@ -10,6 +10,7 @@ from forth import (
     encode,
     lex,
     savez,
+    decode,
 )
 
 if __name__ == "__main__":
@@ -22,7 +23,7 @@ if __name__ == "__main__":
     print(words)
     print()
 
-    dim = 100
+    dim = 200
     codebook = Codebook([], dim=dim)
     codebook.initialize()
 
@@ -34,8 +35,10 @@ if __name__ == "__main__":
     enc_env = EncodingEnvironment(codebook, assoc_mem, cleanup_mem)
     words_arr = encode(words, enc_env)
 
-    dpath = pathlib.Path("./data/sample_program_dim100")
+    dpath = pathlib.Path(f"./data/sample_program_dim{dim}")
     savez(dpath, words_arr, enc_env)
 
-    npzfile = np.load("./data/sample_program_dim100/assoc_mem.npz")
+    npzfile = np.load(f"./data/sample_program_dim{dim}/embeddings.npz")
     print(npzfile.files)
+
+    print(decode(npzfile["embeddings"], enc_env))
