@@ -451,9 +451,10 @@ class ControlUnit(spa.Network):
                 stopwatch = 0
                 to_return = np.zeros(d)
                 def function_controller(t, x):
-                    nonlocal state, to_return
+                    nonlocal state, to_return, stopwatch
                     from_R_state = x[:d]
                     from_user_func = x[d:d*2]
+                    clock = x[-3]
                     ctrl_signal = x[-1]
                     stack_done_signal = x[-2]
 
@@ -466,14 +467,19 @@ class ControlUnit(spa.Network):
                     elif ctrl_signal > theta and state == 0 and stack_done_signal < theta:
                         state = 1 # push state
                         to_return = np.concatenate([from_R_state + vocab['S_PUSH'].v, [0, state]])
+                        #print(f"at {t}: pushing tail, entered state {state}")
                     elif state == 1 and stack_done_signal > theta:
                         stopwatch = t
                         state = 2 # move retrieved function to T_state
                         to_return = np.concatenate([from_user_func, [0, state]])
+                        #print(f"at {t}: putting userfunc in tail, entered state {state}")
                     elif state == 2 and t > stopwatch + t_ctrl:
                         state = 3 # done, wait for reset
+                        to_return = np.concatenate([from_user_func, [0, state]])
+                        #print(f"at {t}: ready to reset, entered state {state}")
                     elif state == 3 and clock > 1-theta:
                         state = 0 # reset
+                        #print(f"at {t}: reset, entered state {state}")
                     # need to add reset trigger on resume
 
                     return to_return
@@ -485,11 +491,14 @@ class ControlUnit(spa.Network):
             self.func_ctrl_sigin = nengo.Node(size_in=1)
             self.call_stack_sigin = nengo.Node(size_in=1)
             self.from_user_func = nengo.Node(size_in=d)
-            self.func_ctrl = nengo.Node(size_in=d*2+2, 
+            self.func_ctrl = nengo.Node(size_in=d*2+3, 
                                         output=make_func_ctrl(vocab=vocab), 
                                         label="func_ctrl")
+            func_ctrl_state = nengo.Node(size_in=1, label="func_ctrl_state")
+            nengo.Connection(self.func_ctrl[-1], func_ctrl_state)
             nengo.Connection(self.func_ctrl_sigin, self.func_ctrl[-1]) 
             nengo.Connection(self.call_stack_sigin, self.func_ctrl[-2])
+            nengo.Connection(edge_detector.output, self.func_ctrl[-3])
             nengo.Connection(t_gate_node, self.func_ctrl[:d], synapse=0.01)
             nengo.Connection(self.from_user_func, self.func_ctrl[d:d*2])
 
@@ -503,12 +512,12 @@ class ControlUnit(spa.Network):
             nengo.Connection(T_state.output, self.to_call_stack)
             nengo.Connection(self.func_ctrl[-1], self.call_stack_sigout)
 
-            self.suppress_user_func = nengo.Node(size_in=1,
+            self.func_ctrl_done = nengo.Node(size_in=1,
                                                  size_out=1,
-                                                 output=lambda t, x: [-1 * (x[0] > 3-theta and x[0] < 3+theta)]
+                                                 output=lambda t, x: [x[0] > 3-theta and x[0] < 3+theta]
                                                  )
 
-            nengo.Connection(self.func_ctrl[-1], self.suppress_user_func)
+            nengo.Connection(self.func_ctrl[-1], self.func_ctrl_done)
             
     
 class SimpleStack(spa.Network):
@@ -1243,6 +1252,7 @@ class UserFuncCircuit(WordCircuit):
                 nonlocal state, stopwatch, ctrl_sig, to_controller
                 func = x[:d]
                 go = x[-1]
+                if t < 0.01 and stopwatch != 0: stopwatch = 0
                 if state == 0 and go > theta and stopwatch == 0:
                     words_list = list(words.items())
                     key, _ = words_list[np.argmax([func @ w.v for _, w in words_list])]
@@ -1426,7 +1436,7 @@ with model:
     nengo.Connection(wds_circuits.user_func_circuit.ctrl_sigout, control_unit.func_ctrl_sigin)
     nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, control_unit.from_user_func)
     nengo.Connection(call_stack.sigout, control_unit.call_stack_sigin)
-    nengo.Connection(control_unit.suppress_user_func, wds_circuits.user_func_circuit.output)
+    nengo.Connection(control_unit.func_ctrl_done, wds_circuits.user_func_circuit.output)
 
-    function_decoder = spa.State(voc)
-    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)
+#    function_decoder = spa.State(voc)
+#    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)
