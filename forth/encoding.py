@@ -1,0 +1,436 @@
+"""Encoding functions converting source-level representations to high-dimensional
+vectors. For more information about the vector class `HRR`, see
+`hrr.py`.
+"""
+
+import typing
+from collections import UserDict
+from dataclasses import dataclass
+from pathlib import Path
+
+import numpy as np
+import numpy.fft as fft
+
+from .lex import WORD_TAG_DICT, Word, wordtype2str
+
+__all__ = [
+    "HeteroAssoc",
+    "AutoAssoc",
+    "random",
+    "Codebook",
+    "EncodingEnvironment",
+    "encode",
+]
+
+_FileLike = typing.Union[str, Path]
+
+
+class HeteroAssoc:
+    """Hetero-associative memory for real-valued vectors.
+
+    This hetero-associative memory differs from the implementation in the
+    machine, as it provides methods for storing the memory state
+    using the functionality of [`numpy.savez`](https://numpy.org/doc/stable/reference/generated/numpy.savez.html).
+
+    Attributes:
+        dim_A int: The dimensionality of vectors stored in the address matrix (``self.A``).
+        dim_P int: The dimensionality of vectors stored in the pattern matrix (``self.P``).
+        capacity int: The current capacity of the matrices, this is
+            the ``N`` in their dimensionality. Dynamically sized.
+        stored_traces int: The number of non-zero vectors stored in the
+            address and pattern matrices.
+        A np.ndarray: A `(N, dim_A)` matrix storing *addresses*.
+        P np.ndarray: P `(N, dim_P)` matrix storing *patterns*.
+    """
+
+    def __init__(
+        self, dim_A: int, dim_P: int | None = None, initial_capacity: int = 100
+    ) -> None:
+        self.dim_A = dim_A
+        if dim_P is not None:
+            self.dim_P = dim_P
+        else:
+            self.dim_P = self.dim_A
+        self.capacity = initial_capacity
+        self.stored_traces = 0
+
+        self.A = np.zeros((self.capacity, self.dim_A))
+        self.P = np.zeros((self.capacity, self.dim_P))
+
+    def write(self, x: np.ndarray, y: np.ndarray) -> None:
+        """Associate `(x, y)` in memory, returning the values.
+
+        Args:
+            x np.ndarray: ``(self.dim_A,)`` (or convertable) vector to store
+                as the address.
+            y np.ndarray: ``(self.dim_P,)`` (or convertable) vector to store
+                as the address.
+        """
+        if len(x.shape) > 1:
+            x = x.squeeze()
+        if len(y.shape) > 1:
+            y = y.squeeze()
+
+        # Check to see if the value is already stored in memory
+        sims_A = self.A @ x
+        sims_A_max_idx = np.argmax(sims_A)
+        threshold = 0.8
+        if sims_A[sims_A_max_idx] > threshold:
+            self.A[sims_A_max_idx, :] = y
+            return
+
+        # Otherwise, store the trace as a new row
+        if self.stored_traces >= self.capacity:
+            self.A = np.concatenate([self.A, np.zeros((self.capacity, self.dim))])  # type: ignore
+            self.P = np.concatenate([self.P, np.zeros((self.capacity, self.dim))])  # type: ignore
+            self.capacity *= 2
+        self.A[self.stored_traces, :] = x
+        self.P[self.stored_traces, :] = y
+        self.stored_traces += 1
+
+    def memorize(self, x: np.ndarray, y: np.ndarray) -> None:
+        """Alias for ``self.write``."""
+        self.write(x, y)
+
+    def read(self, x: np.ndarray) -> np.ndarray:
+        """Read `x` from memory, returning the `x` and the resulting value.
+
+        Args:
+            x np.ndarray: ``(self.dim_A,)`` (or convertible) vector to use as an address.
+
+        Returns:
+            The recalled pattern from ``x``.
+        """
+
+        if len(x.shape > 1):
+            x = x.squeeze()
+
+        similarities = self.A @ x
+        max_sim_idx = np.argmax(np.abs(similarities))
+        recalled_pattern = self.P[max_sim_idx]
+        return recalled_pattern
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return self.read(x)
+
+    def savez(self, file: _FileLike, allow_pickle: bool = True) -> None:
+        """Save the contents of the associative memory to a file
+
+        The data which is saved to the file is in the following format:
+        ```
+        {
+        stored_traces: ..., # (1,) array containing the number of traces
+        dim_A: ..., # (1,) array containing the dimensionality of the traces in `A`
+        dim_P, ... # (1,) array containing the dimensionality of the traces in `P`
+        A = self.A, # (stored_traces, dim_A) matrix containing the stored addresses
+        P = self.P, # (stored_traces, dim_P) matrix containing the stored patterns
+        }
+        ```
+
+        Args:
+            file _FileLike: A ``str``, ``file``, or ``pathlib.Path`` file-like
+                object.
+            allow_pickle bool: Optional, defaults to true. Passed to ``np.savez``.
+
+        Example:
+        ```
+        from forth import HeteroAssoc
+        from tempfile import TemporaryFile
+
+        assoc = Assoc(dim_A=10, dim_P=10, init_capacity=10)
+        ... # add items to assoc memory
+
+        outfile = TemporaryFile()
+        assoc.savez(outfile)
+        _ = outfile.seek(0) # Only needed to simulate closing and reopening the file
+        npzfile = np.load(outfile)
+        print(npz.files) # ["stored_traces", "dim_A", "dim_P", "A", "P"]
+        A = npzfile["A"]
+        ```
+        """
+
+        np.savez(
+            file,
+            stored_traces=np.array(self.stored_traces),
+            dim_A=np.array(self.dim_A),
+            dim_P=np.array(self.dim_P),
+            A=self.A,
+            P=self.P,
+            allow_pickle=allow_pickle,
+        )
+
+
+class AutoAssoc:
+    """Auto-associative memory used for cleanup in encoding and decoding calls.
+
+    Like ``HeteroAssoc``, this differs from the one used in the machine
+    as it allows for storage in a file using [`numpy.savez`](https://numpy.org/doc/stable/reference/generated/numpy.savez.html>).
+
+    Attributes:
+        dim int: The dimensionality of vectors stored in the weight matrix.
+        capacity int: The current first dimension of the weight matrix.
+        stored_traces int: The number of non-zero row vectors stored in the weight matrix.
+        W np.ndarray: ``(stored_traces, dim)`` matrix storing vectors for auto-association.
+    """
+
+    def __init__(self, dim: int, init_capacity: int = 20) -> None:
+        self.dim = dim
+        self.capacity = init_capacity
+        self.stored_traces = 0
+        self.W = np.zeros(shape=(init_capacity, dim))
+
+    def write(self, x: np.ndarray) -> None:
+        """Write a value to memory.
+
+        Args:
+            x np.ndarray: ``(self.dim,)`` (or convertible) vector to store in the weights.
+        """
+        if len(x.shape) > 1:
+            x = x.squeeze()
+
+        # Check if the value is already in the matrix
+        sims = self.W @ x
+        sims_max_idx = np.argmax(sims)
+        threshold = 0.8
+        if sims[sims_max_idx] > threshold:
+            return
+
+        # Otherwise, store it
+        if self.stored_traces >= self.capacity:
+            self.W = np.concatenate([self.W, np.zeros((self.capacity, self.dim))])  # type: ignore
+            self.capacity *= 2
+        self.W[self.stored_traces, :] = x
+        self.stored_traces += 1
+
+    def memorize(self, x: np.ndarray) -> None:
+        """See ``forth.encoding.AutoAssoc.write``."""
+        self.write(x)
+
+    def read(self, x: np.ndarray) -> np.ndarray:
+        """Read a value from memory, returning the value and its recalled form.
+
+        Args:
+            x np.ndarray: ``(self.dim,)`` (or convertible) vector to recall from the weights.
+
+        Returns:
+            The recalled vector which is ``(self.dim,)``.
+        """
+        similarities = self.W @ x
+        max_sim_idx = np.argmax(np.abs(similarities))
+        recalled = self.W[max_sim_idx]
+        return recalled
+
+    def recall(self, x: np.ndarray) -> np.ndarray:
+        """See ``forth.encoding.AutoAssoc.read``."""
+        return self.read(x)
+
+    def __call__(self, x: np.ndarray) -> np.ndarray:
+        return self.read(x)
+
+    def savez(self, file: _FileLike, allow_pickle: bool = True) -> None:
+        """Save the contents of the associative memory to a file
+
+        The data which is saved to the file is in the following format:
+        ```
+        {
+        stored_traces: ..., # (1,) array containing the number of traces
+        dim: ... # (1,) array containing the dimensionality of the traces in the weight matrix
+        W: self.W # (stored_traces, dim) weight matrix.
+        }
+        ```
+
+        Args:
+            file _FileLike: A ``str``, ``file``, or ``pathlib.Path`` file-like
+                object.
+            allow_picke bool: Optional, defaults to true. Passed to ``np.savez``.
+
+        Example:
+        ```
+        from forth import AutoAssoc
+        from tempfile import TemporaryFile
+
+        cleanup = Cleanup(dim=100)
+        ... # add items to memory
+
+        outfile = TemporaryFile()
+        assoc.savez(outfile)
+        _ = outfile.seek(0) # Only needed to simulate closing and reopening the file
+        npzfile = np.load(outfile)
+        print(npz.files) # ["stored_traces", "dim", "W"]
+        W = npzfile["W"]
+        ```
+        """
+
+        np.savez(
+            file,
+            dim=np.array(self.dim),
+            stored_traces=np.array(self.stored_traces),
+            W=self.W,
+            allow_pickle=allow_pickle,
+        )
+
+
+def random(
+    num_vectors: int, dim: int, dtype=float, rng=np.random.default_rng()
+) -> np.ndarray:
+    """Create randomly sampled matrix of ``(num_vectors, dim)``.
+
+    Args:
+        num_vectors int: The number of vectors to sample.
+        dim: int: The dimensionality of the vectors.
+        dtype float: Optional, defaults to ``float``.
+        rng: Optional, defaults to ``np.random.default_rng()``.
+
+    Returns:
+        ``(num_vectors, dim)`` randomly sampled matrix from from the normalized
+        ``np.random.normal(dim, sd=1/np.sqrt(dim)``.
+    """
+    sd = 1.0 / np.sqrt(dim)
+    vs = rng.normal(scale=sd, size=(num_vectors, dim)).astype(dtype)
+    norms = np.linalg.vector_norm(vs, axis=1, keepdims=True)
+    vs /= norms
+    return vs
+
+
+class Codebook(UserDict):
+    """Thin dictionary wrapper for codebooks.
+
+    Attributes:
+        dim int: The dimensionality of the vectors to store.
+    """
+
+    _initialized = False
+
+    def __init__(self, symbols: list[str], dim: int) -> None:
+        super(Codebook, self).__init__()
+        self.dim = dim
+        for symbol in symbols:
+            self.data[symbol] = random(1, dim).squeeze()
+
+    def savez(self, file: _FileLike) -> None:
+        """Save codebook using [`numpy.savez`](https://numpy.org/doc/stable/reference/generated/numpy.savez.html>).
+
+        The format of the data is each ``(key, value)`` pair from ``self.data.items()``.
+
+        Args:
+            file _FileLike: A ``str``, or ``pathlib.Path`` to save the codebook to.
+
+        Example:
+        ```
+        from forth import Codebook:
+        from tempfile import TemporaryFile
+
+        codebook = Codebook(["foo", "bar", "baz"], dim=100)
+
+        outfile = TemporaryFile()
+        assoc.savez(outfile)
+        _ = outfile.seek(0) # Only needed to simulate closing and reopening the file
+        npzfile = np.load(outfile)
+        print(npz.files) # ["foo", "bar", "baz"]
+        foo = npzfile["foo"]
+        ```
+        """
+        np.savez(file, **self.data)
+
+    def is_initialized(self) -> bool:
+        return self._initialized
+
+    def initialize(self) -> None:
+        self._initialized = True
+        for value in WORD_TAG_DICT.values():
+            name = str(value).removeprefix("WordType.")
+            self.data[name] = random(1, self.dim).squeeze()
+
+
+@dataclass
+class EncodingEnvironment:
+    """Dataclass which holds the codebook, associative memory, and cleanup
+    memory for encoding.
+
+    See ``Codebook``, ``HeteroAssoc``, and ``AutoAssoc`` for more information.
+    """
+
+    codebook: Codebook
+    assoc_mem: HeteroAssoc
+    cleanup_mem: AutoAssoc
+
+    def savez(self, to_save: _FileLike) -> None:
+        to_save = Path(to_save)
+        codebook_file = to_save / "_codebook.npz"
+        assoc_mem_file = to_save / "_assoc_mem.npz"
+        cleanup_mem_file = to_save / "_cleanup_mem.npz"
+
+        self.codebook.savez(codebook_file)
+        self.assoc_mem.savez(assoc_mem_file)
+        self.cleanup_mem.savez(cleanup_mem_file)
+
+
+def cconv(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    return fft.ifft(fft.fft(x) * fft.fft(y)).real
+
+
+def invert(x: np.ndarray) -> np.ndarray:
+    return x[np.r_[0, x.size - 1 : 0 : -1]]
+
+
+def cosine_similarity(x: np.ndarray, y: np.ndarray) -> float:
+    norm = np.linalg.vector_norm(x) * np.linalg.vector_norm(y)
+    norm = max(norm, 1e-8)
+    return float((x.dot(y)) / norm)
+
+
+def make_cons(
+    lhs: np.ndarray, rhs: np.ndarray, enc_env: EncodingEnvironment
+) -> np.ndarray:
+    """Create a new linked list encoding out of ``lhs`` and ``rhs``.
+
+    Args:
+        lhs np.ndarray: High-dimensional vector encoding.
+        rhs np.ndarray: High-dimensional vector encoding.
+        enc_env EncodingEnvironment: The encoding environment.
+
+    Returns:
+        A linked-list representation of ``lhs`` and ``rhs``.
+    """
+    enc_env.cleanup_mem.write(lhs)
+    enc_env.cleanup_mem.write(rhs)
+    ptr = random(1, enc_env.codebook.dim).squeeze()
+    rfpair = (
+        cconv(lhs, enc_env.codebook["lhs"])
+        + cconv(rhs, enc_env.codebook["rhs"])
+        + enc_env.codebook["phi"]
+    )
+    norm = np.linalg.vector_norm(rfpair)
+    norm = max(norm, 1e-8)
+    rfpair /= norm
+    enc_env.assoc_mem.write(ptr, rfpair)
+    return ptr
+
+
+def cons(xs: list[np.ndarray], enc_env: EncodingEnvironment) -> np.ndarray:
+    base = enc_env.codebook["nil"]
+    for x in reversed(xs):
+        base = make_cons(x, base, enc_env)
+    return base
+
+
+def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
+    """Encode a list of ``Word``'s into a high-dimensional vector.
+
+    Args:
+        words list[Word]: The list of words to encode.
+        enc_env EncodingEnvironment: The encoding environment dataclass.
+
+    Returns:
+        The list of words encoded as a linked-list.
+    """
+    if not enc_env.codebook.is_initialized():
+        enc_env.codebook.initialize()
+
+    encoded_words = []
+    for word in words:
+        wordtype = word.tag
+        encoded_value = enc_env.codebook[wordtype2str(wordtype)]
+        encoded_words.append(encoded_value)
+
+    return cons(encoded_words, enc_env)
