@@ -1,5 +1,6 @@
 """Lexical analysis for the FORTH programming language."""
 
+import sys
 from dataclasses import dataclass
 from enum import Enum, auto
 
@@ -165,17 +166,17 @@ class WordType(Enum):
     F_ASTERISK = auto()
     F_ASTERISK_SLASH = auto()
     F_ASTERISK_SLASH_MOD = auto()
-    F_PLUS = auto()
-    F_PLUS_STORE = auto()
-    F_PLUS_LOOP = auto()
+    F_ADD = auto()
+    F_ADD_STORE = auto()
+    F_ADD_LOOP = auto()
     F_COMMA = auto()
-    F_MINUS = auto()
+    F_SUB = auto()
     F_DOT = auto()
     F_DOT_QUOTE = auto()
     F_SLASH = auto()
     F_SLASH_MOD = auto()
     F_ZERO_LESS = auto()
-    F_ZERO_EQUALS = auto()
+    F_ISZERO = auto()
     F_ONE_PLUS = auto()
     F_ONE_MINUS = auto()
     F_TWO_STORE = auto()
@@ -322,17 +323,17 @@ WORD_TAG_DICT: dict[str, WordType] = {
     "*": WordType.F_ASTERISK,
     "*/": WordType.F_ASTERISK_SLASH,
     "*/MOD": WordType.F_ASTERISK_SLASH_MOD,
-    "+": WordType.F_PLUS,
-    "+!": WordType.F_PLUS_STORE,
-    "+LOOP": WordType.F_PLUS_LOOP,
+    "+": WordType.F_ADD,
+    "+!": WordType.F_ADD_STORE,
+    "+LOOP": WordType.F_ADD_LOOP,
     ",": WordType.F_COMMA,
-    "-": WordType.F_MINUS,
+    "-": WordType.F_SUB,
     ".": WordType.F_DOT,
     '."': WordType.F_DOT_QUOTE,
     "/": WordType.F_SLASH,
     "/MOD": WordType.F_SLASH_MOD,
     "0<": WordType.F_ZERO_LESS,
-    "0=": WordType.F_ZERO_EQUALS,
+    "0=": WordType.F_ISZERO,
     "1+": WordType.F_ONE_PLUS,
     "1-": WordType.F_ONE_MINUS,
     "2!": WordType.F_TWO_STORE,
@@ -471,13 +472,12 @@ def lex(src: str) -> list[Word]:
         `LexicalAnalysisError`.
     """
 
-    src_words = src.upper().split()
+    src_words = src.upper().strip().split()
     word_rec = []
     for word in src_words:
         if word.isnumeric():
-            print(f"ISNUMERIC: {word}")
             word_rec.append(Word(WordType.NUMBER, word))
-        if word in WORD_TAG_DICT:
+        elif word in WORD_TAG_DICT:
             word_rec.append(Word(WORD_TAG_DICT[word], word))
         else:
             word_rec.append(Word(WordType.IDENT, word))

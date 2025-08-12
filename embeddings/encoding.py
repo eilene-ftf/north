@@ -3,6 +3,7 @@ vectors. For more information about the vector class `HRR`, see
 `hrr.py`.
 """
 
+import sys
 import typing
 from collections import UserDict
 from dataclasses import dataclass
@@ -11,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import numpy.fft as fft
 
-from .lex import Word, wordtype2str, WordType
+from .lex import Word, WordType, wordtype2str
 
 __all__ = [
     "HeteroAssoc",
@@ -23,6 +24,7 @@ __all__ = [
     "savez",
     "cconv",
     "invert",
+    "get_name",
 ]
 
 _FileLike = typing.Union[str, Path]
@@ -419,7 +421,7 @@ def make_cons(
     enc_env.cleanup_mem.write(lhs)
     enc_env.cleanup_mem.write(rhs)
 
-    lhs_name = f"Pointer_to_{get_name(lhs, enc_env)}"
+    lhs_name = f"Pointer_to_{get_name(lhs, enc_env.codebook)}"
     if cosine_similarity(lhs, enc_env.codebook["T_NIL"]) > theta:
         lhs_ptr = lhs
     elif lhs_name in enc_env.codebook:
@@ -430,7 +432,7 @@ def make_cons(
         enc_env.codebook[lhs_name] = lhs_ptr
         enc_env.assoc_mem.write(lhs_ptr, lhs)
 
-    rhs_name = f"Pointer_to_{get_name(rhs, enc_env)}"
+    rhs_name = f"Pointer_to_{get_name(rhs, enc_env.codebook)}"
     if cosine_similarity(rhs, enc_env.codebook["T_NIL"]) > theta:
         rhs_ptr = rhs
     elif rhs_name in enc_env.codebook:
@@ -468,8 +470,8 @@ def cons(xs: list[np.ndarray], enc_env: EncodingEnvironment) -> np.ndarray:
     return base
 
 
-def get_name(x: np.ndarray, enc_env: EncodingEnvironment, theta: float = 0.4) -> str:
-    keys, values = zip(*enc_env.codebook.items())
+def get_name(x: np.ndarray, codebook: Codebook, theta: float = 0.4) -> str:
+    keys, values = zip(*codebook.items())
     weights = np.array(values)
     sims = weights @ x
     sims_max_idx = np.argmax(sims)
@@ -492,12 +494,12 @@ def encode_number(cont: str, enc_env: EncodingEnvironment) -> np.ndarray:
     n = int(cont)
     if n < 0:
         raise ValueError("Can only encode values >=0")
-    print(f"ENCODE_NUMBER: {n}")
+    print(f"ENCODE_NUMBER: {n}", file=sys.stderr)
 
     num = enc_env.codebook["T_NIL"]
     for _ in range(n):
         num = make_cons(num, enc_env.codebook["T_NIL"], enc_env=enc_env, numeric=True)
-    enc_env.codebook[get_name(num, enc_env)] = num
+    enc_env.codebook[get_name(num, enc_env.codebook)] = num
     return num
 
 
@@ -524,6 +526,7 @@ def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
             if cont not in enc_env.codebook:
                 enc_env.codebook[cont] = random(1, enc_env.codebook.dim).squeeze()
             encoded_value = enc_env.codebook[cont]
+            encoded_words.append(encoded_value)
         elif wordtype == WordType.EOF:
             break
         else:

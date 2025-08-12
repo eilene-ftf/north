@@ -6,6 +6,9 @@ import numpy as np
 from numpy.linalg import norm
 from collections import UserDict
 
+from graft import load_embeddings, embed
+
+LOAD_EMBEDDINGS_FROM_MEMORY = False
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
 t_stack = 0.2
@@ -1142,119 +1145,135 @@ class RegisterBank(spa.Network):
                 self.bindings[name] = getattr(self, name)
 
 
-model = spa.Network()
-with model:
-    kws = """Keywords: 
-        !           F_PUT
-        +           F_ADD
-        -           F_SUB
-        0=          F_ISZERO
-        :           F_FUNC
-        ;           F_END
-        @           F_PEEP
-        drop        F_DROP
-        dup         F_DUP
-        if          F_IF
-        swap        F_SWAP
-        then        F_THEN
-    """
-    
-    # Need to add ROT command too, but will talk later about that, if we are doing return stack operations.
-    
-    data_stack = SimpleStack(label="data_stack")
-    return_stack = SimpleStack(label="return_stack")
-    ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
-    call_stack = SimpleStack(label="call_stack")
+if __name__ == "__main__":
 
-    registers = RegisterBank(
-            ['R1', 'R2', 'R3', 'R4', 'R5', 
-             'I1', 'I2', 'I3', 
-             'O1', 'O2', 'O3']
-            )
+    model = spa.Network()
+    with model:
+        kws = """Keywords: 
+            !           F_PUT
+            +           F_ADD
+            -           F_SUB
+            0=          F_ISZERO
+            :           F_FUNC
+            ;           F_END
+            @           F_PEEP
+            drop        F_DROP
+            dup         F_DUP
+            if          F_IF
+            swap        F_SWAP
+            then        F_THEN
+        """
+        
+        # Need to add ROT command too, but will talk later about that, if we are doing return stack operations.
+        
+        data_stack = SimpleStack(label="data_stack")
+        return_stack = SimpleStack(label="return_stack")
+        ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
+        call_stack = SimpleStack(label="call_stack")
 
-    def new_dummy(name=""):
-        dummy_circuit = spa.Network(f"{name} circuit")
-        with dummy_circuit:
-            dummy_circuit.sigin = nengo.Node(size_in=1, 
-                                            size_out=1, 
-                                            output=lambda _, x: x if x[0] > theta else 0, 
-                                            label="sigin",
-                                            )
-            dummy_circuit.sigout = nengo.Node(size_in=1, label="sigout")
-            dummy_circuit.type = spa.types.TScalar
-            dummy_circuit.input = dummy_circuit.sigin
-            dummy_circuit.output = dummy_circuit.sigout
+        registers = RegisterBank(
+                ['R1', 'R2', 'R3', 'R4', 'R5', 
+                'I1', 'I2', 'I3', 
+                'O1', 'O2', 'O3']
+                )
 
-        return dummy_circuit
-   
-    wds_circuits = spa.Network()
-    with wds_circuits:
-        circuits_dict = {
-            "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),
-            "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"), 
-            "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
-            "F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit"),
-            "F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit"),
-            "F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit"),
-            "F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
-            "F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
-            "F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
-            "F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
-            "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
-            "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
-        }
-    
-    voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
-                 "APPLE", "BANANA", "CHERRY",
-                 "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
-                 ] + list(circuits_dict.keys())
-    voc.populate("; ".join(voc_items))
+        def new_dummy(name=""):
+            dummy_circuit = spa.Network(f"{name} circuit")
+            with dummy_circuit:
+                dummy_circuit.sigin = nengo.Node(size_in=1, 
+                                                size_out=1, 
+                                                output=lambda _, x: x if x[0] > theta else 0, 
+                                                label="sigin",
+                                                )
+                dummy_circuit.sigout = nengo.Node(size_in=1, label="sigout")
+                dummy_circuit.type = spa.types.TScalar
+                dummy_circuit.input = dummy_circuit.sigin
+                dummy_circuit.output = dummy_circuit.sigout
 
-    # holo = sum([voc[c].v for c in circuits_dict.keys()])
-    # print(np.sqrt(len(circuits_dict.values())), 
-    #       np.linalg.norm(holo),
-    #      [voc[c].v @ holo for c in circuits_dict.keys()])
+            return dummy_circuit
     
-    lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
-    listail1 = cons(voc["APPLE"], voc["BANANA"])
-    listail2 = cons(voc["BANANA"],voc["T_NIL"])
-    
-    def make_peano_number(n, vocab):
-        num = vocab['T_NIL']
-        for _ in range(n):
-            num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
-        vocab.add(num.name, num)
-        return num
-    
-    num1 = make_peano_number(1, voc)
-    num2 = make_peano_number(2, voc)
-    num3 = make_peano_number(3, voc)
-    num4 = make_peano_number(4, voc)
-    num5 = make_peano_number(5, voc)
-    num6 = make_peano_number(6, voc)
-    
-    test_program = make_list(["APPLE","NUMBER_1","NUMBER_1","F_ADD","NUMBER_1","F_ADD","NUMBER_1","F_ADD"], vocab=voc)
-    
-    voc.add(test_program.name, test_program.v)
-    
-    inp = spa.State(voc)
-    out = spa.State(voc)
-    
-    
-    nengo.Connection(inp.output, data_stack.input)
-    nengo.Connection(data_stack.output, out.input)
+        wds_circuits = spa.Network()
+        with wds_circuits:
+            circuits_dict = {
+                "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),
+                "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"), 
+                "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
+                "F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit"),
+                "F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit"),
+                "F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit"),
+                "F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
+                "F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
+                "F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
+                "F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
+                "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
+                "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
+            }
+        
+        # voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
+        #             "APPLE", "BANANA", "CHERRY",
+        #             "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
+        #             ] + list(circuits_dict.keys())
+        
+        # @connor: "R_LEFT", "R_RIGHT", "R_PHI", "T_NIL", and other items are
+        # initialized with *the embeddings*. Likewise, for vocab items like
+        # "apple", "banana", etc.
+        voc_items = ["S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", "S_WORD"]
+        voc.populate("; ".join(voc_items))
 
-    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=circuits_dict)
+        if LOAD_EMBEDDINGS_FROM_MEMORY:
+            embeddings_path = f"./data/fruit_program_dim{d}"
+            test_program = load_embeddings(embeddings_path, voc)
+        else:
+            test_program = embed("APPLE 1 1 + 1 + 1 +", voc)
 
-    
-    nengo.Connection(control_unit.to_data_stack, inp.input)
-    
-    nengo.Connection(control_unit.trigger, data_stack.sigin)
-    
-    
-    busy_node = nengo.Node(output=make_busy_signal(), size_in=2, size_out=1, label="busy_node")
-    nengo.Connection(busy_node, control_unit.word_busy)
 
-    dispatcher = Dispatcher(inp, circuits_dict, busy_node, vocab=voc)
+        # holo = sum([voc[c].v for c in circuits_dict.keys()])
+        # print(np.sqrt(len(circuits_dict.values())), 
+        #       np.linalg.norm(holo),
+        #      [voc[c].v @ holo for c in circuits_dict.keys()])
+        
 
-    nengo.Connection(control_unit.to_dispatcher, dispatcher.input)
+        
+        # def make_peano_number(n, vocab):
+        #     num = vocab['T_NIL']
+        #     for _ in range(n):
+        #         num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
+        #     vocab.add(num.name, num)
+        #     return num
+        
+        # num1 = make_peano_number(1, voc)
+        # num2 = make_peano_number(2, voc)
+        # num3 = make_peano_number(3, voc)
+        # num4 = make_peano_number(4, voc)
+        # num5 = make_peano_number(5, voc)
+        # num6 = make_peano_number(6, voc)
+        
+        # test_program = make_list(["APPLE","NUMBER_1","NUMBER_1","F_ADD","NUMBER_1","F_ADD","NUMBER_1","F_ADD"], vocab=voc)
+        
+        # voc.add(test_program.name, test_program.v)
+        
+        inp = spa.State(voc)
+        out = spa.State(voc)
+        
+        
+        nengo.Connection(inp.output, data_stack.input)
+        nengo.Connection(data_stack.output, out.input)
+
+        control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", voc=voc, assoc_memory=assoc, circuits=circuits_dict)
+
+        
+        nengo.Connection(control_unit.to_data_stack, inp.input)
+        
+        nengo.Connection(control_unit.trigger, data_stack.sigin)
+        
+        
+        busy_node = nengo.Node(output=make_busy_signal(), size_in=2, size_out=1, label="busy_node")
+        nengo.Connection(busy_node, control_unit.word_busy)
+
+        dispatcher = Dispatcher(inp, circuits_dict, busy_node, vocab=voc)
+
+        nengo.Connection(control_unit.to_dispatcher, dispatcher.input)
+
+
+    with nengo.Simulator(model, optimize=True) as sim:
+        sim.run(20)
