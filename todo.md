@@ -38,6 +38,6 @@
 - [x] Create a circuit that retrieves a program from the table when it is not in our minimum subset
 - [x] Add it to the basal ganglia
 - [x] Modify it to push the current tail to the call stack and put the retrieved program in the tail
-    - [ ] Then resume the program on the next clock tick
-- [ ] Modify call stack behaviour to pop the top value (if any) into the tail if the tail is nil
+    - [x] Then resume the program on the next clock tick
+- [x] Modify call stack behaviour to pop the top value (if any) into the tail if the tail is nil
     - [ ] And dump the return stack

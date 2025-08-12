@@ -8,7 +8,9 @@ from collections import UserDict
 
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
+t_resume = 0.1 # do not make relative
 t_stack = 0.2
+t_buffer = 0.25 # extra time padding so the function controller doesn't race the function return
 t_ctrl = 0.25
 t_busy = 1.25
 t_done = 1.75
@@ -68,15 +70,18 @@ def make_stack_out(stack):
             sigout = 1
             stopwatch = t
             if vcos(inp, vocab['S_PEEK']) > theta:
+                print("peek!")
                 if stack:
                     state = stack[-1].v
                 else:
                     state = vocab['S_CODE_ERR_STACKEMPTY'].v
             elif vcos(inp, vocab['S_POP']) > theta:
+                print("pop!")
                 if stack:
                     state = stack.pop().v
                 else:
                     state = vocab['S_CODE_ERR_STACKEMPTY'].v
+                print([p.name for p in stack])
         if sigout == 1 and t > stopwatch + t_stack:
             sigout = 0
         return np.concatenate((state, [sigout]))
@@ -237,6 +242,25 @@ class RisingEdgeDetector(nengo.Network):
             self.output = nengo.Node(size_in=1)
             nengo.Connection(self.compare, self.output)
 
+class FallingEdgeDetector(nengo.Network):
+    def __init__(self, tau=0.01, n_neurons=100, bias=-0.5, **kwargs):
+        super().__init__(**kwargs)
+        
+        with self:
+            self.input = nengo.Node(size_in=1)
+            
+            self.delayed = nengo.Node(size_in=1)
+            nengo.Connection(self.input, self.delayed, synapse=tau)
+            
+            self.compare = nengo.Ensemble(n_neurons, 1)
+            
+            nengo.Connection(self.input, self.compare, transform=-2)
+            nengo.Connection(self.delayed, self.compare, transform=2)
+            nengo.Connection(nengo.Node(output=bias, label="bias"), self.compare)
+            
+            self.output = nengo.Node(size_in=1)
+            nengo.Connection(self.compare, self.output)
+
 def dereference(t, x):
     closest_sp = voc._keys[np.argmax(voc.dot(x))]
     if closest_sp.startswith("Pointer_to_"):
@@ -261,6 +285,14 @@ class ControlUnit(spa.Network):
             H_state = spa.State(self.vocab, label="head_register")
             T_state = spa.State(self.vocab, label="tail_register")
             output_state = spa.State(self.vocab, label="output_register")
+            
+            self.clock_trigger = nengo.Node(
+                lambda t: 1.0 if (t % 2) < 0.1 else 0.0, 
+                label="clock_trigger"
+            )
+            
+            edge_detector = RisingEdgeDetector(tau=0.04, bias=0, label="edge_detector")
+            nengo.Connection(self.clock_trigger, edge_detector.input)
             
             mod_node = nengo.Node(
                 create_modification_node(vocab, circuits=circuits, theta=theta),
@@ -290,12 +322,42 @@ class ControlUnit(spa.Network):
             self.word_busy = nengo.Node(size_in=1, label="word_busy")
             self.condition_output = nengo.Node(size_in=1, label="condition_flag")
             
+            def make_resume_state():
+                state = 0
+                stopwatch = 0
+                def resume_state_machine(t, x):
+                    nonlocal state, stopwatch
+                    resume_edge = x[0]
+                    clock = x[1]
+
+                    if state == 0 and resume_edge > theta:
+                        state = 1
+                        #print(f"Detected resume signal, entering state {state}")
+                    elif state == 1 and clock > 1-theta and stopwatch == 0: 
+                        stopwatch = t
+                        #print("Clock pulse arrived, waiting to reset")
+                    elif state == 1 and stopwatch != 0 and t > stopwatch + t_resume:
+                        state = 0                        
+                        stopwatch = 0
+                        #print(f"Resetting, entering state {state}")
+
+                    #print(f'state:{state} stopwatch:{stopwatch:.2f} time:{t:.2f} clock:{clock:.2f} resume:{resume_edge:.2f}')
+                    return state
+                return resume_state_machine
+
             # May need to be changed, seems like it might behave weirdly if 
             # there are multiple words in a row or processing a word takes a 
             # long time
-            resume = RisingEdgeDetector(tau=0.75 * clock_tick, bias=0, label="resume")
+            resume = FallingEdgeDetector(bias=0, label="resume")
+            resume_state = nengo.Node(size_in=2,
+                                      size_out=1,
+                                      output=make_resume_state(),
+                                      label="resume_state"
+                                      )
             nengo.Connection(self.word_busy, resume.input)
-            nengo.Connection(resume.output, mod_node[-1])
+            nengo.Connection(resume.output, resume_state[0])
+            nengo.Connection(self.clock_trigger, resume_state[1])
+            nengo.Connection(resume_state, mod_node[-1])
             
             def cleanup_node(t, x, vocab=self.vocab):
                 return cleanup(x, vocab=vocab).v
@@ -333,14 +395,6 @@ class ControlUnit(spa.Network):
             nengo.Connection(head_cleanup, H_state.input)
             nengo.Connection(noisy_t.output, tail_cleanup)
             #nengo.Connection(tail_cleanup, T_state.input)
-            
-            self.trigger = nengo.Node(
-                lambda t: 1.0 if (t % 2) < 0.1 else 0.0, 
-                label="clock_trigger"
-            )
-            
-            edge_detector = RisingEdgeDetector(tau=0.04, bias=0, label="edge_detector")
-            nengo.Connection(self.trigger, edge_detector.input)
             
             def compute_condition(t, x):
                 R_vec = x[0:self.d]
@@ -445,13 +499,53 @@ class ControlUnit(spa.Network):
             nengo.Connection(condition_node, gate_node_R[2*self.d])
             nengo.Connection(gate_node_R, R_state.input, synapse=0.05)
             
+            def make_func_rtrn(vocab=voc):
+                d = vocab.dimensions
+                state = 0
+                stopwatch = 0
+                stack_cmd = np.zeros(d)
+                to_return = np.zeros(d)
+
+                def function_return(t, x):
+                    nonlocal state, stopwatch, to_return, stack_cmd
+                    
+                    from_R_state = x[:d]
+                    from_T_state = x[d:d*2]
+                    from_call_stack = x[d*2:d*3]
+                    stack_done_signal = x[-1]
+                    clock = x[-2]
+                    
+                    is_nil = from_T_state @ vocab['T_NIL'].v > theta
+
+                    if state == 0 and not is_nil:
+                        to_return = from_R_state
+                    elif state == 0 and is_nil:
+                        state = 1
+                        stack_cmd = vocab['S_POP'].v
+                    elif state == 1 and stack_done_signal > theta:
+                        state = 2
+                        stack_cmd = np.zeros(d)
+                        if (from_call_stack @ vocab['S_CODE_ERR_STACKEMPTY'].v) < theta:
+                            to_return = from_call_stack
+                        else:
+                            to_return = vocab['S_CODE_HALT'].v
+                    elif state == 2 and clock > 1-theta:
+                        stopwatch = t
+                        state = 3
+                    elif state == 3 and t > stopwatch + t_resume:
+                        state = 0
+                    
+                    #print(f'{t:.2f} {state} {from_T_state @ vocab["T_NIL"].v:.2f} {clock:.2f}')
+                    return np.concatenate([to_return, stack_cmd, [state]])
+                return function_return
+
             def make_func_ctrl(vocab=voc):
                 d = vocab.dimensions
                 state = 0
                 stopwatch = 0
                 to_return = np.zeros(d)
                 def function_controller(t, x):
-                    nonlocal state, to_return, stopwatch
+                    nonlocal state, stopwatch, to_return
                     from_R_state = x[:d]
                     from_user_func = x[d:d*2]
                     clock = x[-3]
@@ -460,33 +554,43 @@ class ControlUnit(spa.Network):
 
                     pushmag = (from_R_state @ vocab['S_PUSH'].v)
                     if pushmag > theta:
-                        from_R_state -= vocab['S_PUSH'].v
+                        from_R_state -= vocab['S_PUSH'].v 
 
                     if ctrl_signal < theta and state == 0:
-                        return np.concatenate([from_R_state, [0, state]])
+                        to_return = from_R_state 
                     elif ctrl_signal > theta and state == 0 and stack_done_signal < theta:
                         state = 1 # push state
-                        to_return = np.concatenate([from_R_state + vocab['S_PUSH'].v, [0, state]])
-                        #print(f"at {t}: pushing tail, entered state {state}")
+                        to_return = from_R_state + vocab['S_PUSH'].v 
+                        #print(f"at {t:.2f}: pushing tail, entered state {state}")
                     elif state == 1 and stack_done_signal > theta:
                         stopwatch = t
                         state = 2 # move retrieved function to T_state
-                        to_return = np.concatenate([from_user_func, [0, state]])
-                        #print(f"at {t}: putting userfunc in tail, entered state {state}")
+                        to_return = from_user_func
+                        #print(f"at {t:.2f}: putting userfunc in tail, entered state {state}")
                     elif state == 2 and t > stopwatch + t_ctrl:
+                        stopwatch = 0
                         state = 3 # done, wait for reset
-                        to_return = np.concatenate([from_user_func, [0, state]])
-                        #print(f"at {t}: ready to reset, entered state {state}")
-                    elif state == 3 and clock > 1-theta:
+                        to_return = from_user_func
+                        #print(f"at {t:.2f}: ready to reset, entered state {state}")
+                    elif state == 3 and clock > 1-theta and stopwatch == 0:
+                        stopwatch = t
+                        #print(f"at {t:.2f}: clock pulse received, starting timer")
+                    elif state == 3 and stopwatch != 0 and t > stopwatch + t_resume:
                         state = 0 # reset
-                        #print(f"at {t}: reset, entered state {state}")
+                        stopwatch = 0
+                        #print(f"at {t:.2f}: reset, entered state {state}")
                     # need to add reset trigger on resume
 
-                    return to_return
+                    return np.concatenate([to_return, [state]])
 
                 return function_controller
+            
+            # ALERT: THERE MAY BE A RACE CONDITION ON THE CALL STACK
 
-                
+            self.from_call_stack = nengo.Node(size_in=d)
+            func_rtrn = nengo.Node(size_in=d*3+2,
+                                   output=make_func_rtrn(vocab=vocab),
+                                   label="func_rtrn")
 
             self.func_ctrl_sigin = nengo.Node(size_in=1)
             self.call_stack_sigin = nengo.Node(size_in=1)
@@ -494,12 +598,17 @@ class ControlUnit(spa.Network):
             self.func_ctrl = nengo.Node(size_in=d*2+3, 
                                         output=make_func_ctrl(vocab=vocab), 
                                         label="func_ctrl")
-            func_ctrl_state = nengo.Node(size_in=1, label="func_ctrl_state")
-            nengo.Connection(self.func_ctrl[-1], func_ctrl_state)
+            #func_ctrl_state = nengo.Node(size_in=1, label="func_ctrl_state")
+            #nengo.Connection(self.func_ctrl[-1], func_ctrl_state)
+            nengo.Connection(self.call_stack_sigin, func_rtrn[-1])
+            nengo.Connection(T_state.output, func_rtrn[d:d*2])
+            nengo.Connection(self.from_call_stack, func_rtrn[d*2:d*3])
             nengo.Connection(self.func_ctrl_sigin, self.func_ctrl[-1]) 
             nengo.Connection(self.call_stack_sigin, self.func_ctrl[-2])
-            nengo.Connection(edge_detector.output, self.func_ctrl[-3])
-            nengo.Connection(t_gate_node, self.func_ctrl[:d], synapse=0.01)
+            nengo.Connection(self.clock_trigger, func_rtrn[-2])
+            nengo.Connection(self.clock_trigger, self.func_ctrl[-3])
+            nengo.Connection(t_gate_node, func_rtrn[:d], synapse=0.01)
+            nengo.Connection(func_rtrn[:d], self.func_ctrl[:d])
             nengo.Connection(self.from_user_func, self.func_ctrl[d:d*2])
 
             nengo.Connection(self.func_ctrl[:d], T_state.input) 
@@ -510,6 +619,7 @@ class ControlUnit(spa.Network):
                                                 output=lambda t, x: [x[0] > 1-theta and x[0] < 1+theta]
                                                 )
             nengo.Connection(T_state.output, self.to_call_stack)
+            nengo.Connection(func_rtrn[d:d*2], self.to_call_stack)
             nengo.Connection(self.func_ctrl[-1], self.call_stack_sigout)
 
             self.func_ctrl_done = nengo.Node(size_in=1,
@@ -517,6 +627,7 @@ class ControlUnit(spa.Network):
                                                  output=lambda t, x: [x[0] > 3-theta and x[0] < 3+theta]
                                                  )
 
+            nengo.Connection(func_rtrn[-1], self.call_stack_sigout)
             nengo.Connection(self.func_ctrl[-1], self.func_ctrl_done)
             
     
@@ -619,7 +730,7 @@ def create_modification_node(vocab, circuits, theta=0.2):
     def modify_output(t, x):
         output_vec = x[:d]
         user_func_holo = x[d:d*2]
-        resume = x[-1] < -theta
+        resume = x[-1] > 1-theta
         
         norm_output = np.linalg.norm(output_vec)
         norm_pop = np.linalg.norm(pop_vec)
@@ -1253,6 +1364,9 @@ class UserFuncCircuit(WordCircuit):
                 func = x[:d]
                 go = x[-1]
                 if t < 0.01 and stopwatch != 0: stopwatch = 0
+                #if state == 0 and go > theta and stopwatch == 0:
+                    #     stopwatch = t
+                #     print("table set stopwatch")
                 if state == 0 and go > theta and stopwatch == 0:
                     words_list = list(words.items())
                     key, _ = words_list[np.argmax([func @ w.v for _, w in words_list])]
@@ -1260,15 +1374,22 @@ class UserFuncCircuit(WordCircuit):
                     to_controller = function.v
                     ctrl_sig = 1
                     stopwatch = t
-                elif state == 0 and go > theta and t > stopwatch + t_ctrl:
-                    ctrl_sig = 0
-                elif state == 0 and go > theta and t > stopwatch + t_busy:
                     state = 1
-                elif state == 1 and go < theta and t > stopwatch + t_done:
+                    #print("table retreived func, pulsing control signal")
+                elif state == 1 and go > theta and t > stopwatch + t_ctrl:
+                    ctrl_sig = 0
+                    state = 2
+                    #print("table done pulsing")
+                elif state == 2 and go > theta and t > stopwatch + t_busy:
+                    state = 3
+                    #print("table no longer busy")
+                elif state == 3 and go < theta and t > stopwatch + t_done:
                     to_controller = np.zeros(d)
                     state = 0
                     stopwatch = 0
-                return np.concatenate([to_controller, [ctrl_sig, state]])
+                    #print("table reset")
+                #print(f'{t:.2f} {state} {go:.2f} {stopwatch + t_busy:.2f} {ctrl_sig}')
+                return np.concatenate([to_controller, [ctrl_sig, state == 3]])
             return prog_table
         with self:
             self.func_key = nengo.Node(size_in=d) 
@@ -1317,7 +1438,7 @@ with model:
     """
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
-                 "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
+                 "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_CODE_HALT'
                  ] 
     voc.populate("; ".join(voc_items))
 
@@ -1371,7 +1492,8 @@ with model:
         voc.populate('; '.join(fruits))
 
         table = {'FRUITSWAP': ['LYCHEE', 'MANGO', 'F_SWAP'],
-                 'FRUITDROP': ['KUMQUAT', 'TANGERINE', 'F_DROP']
+                 'FRUITDROP': ['KUMQUAT', 'TANGERINE', 'F_DROP'],
+                 'FRUITPUSH': ['YUZU']
                 }
 
 
@@ -1401,8 +1523,7 @@ with model:
     result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list(["FRUITSWAP", "CHERRY", "PINEAPPLE", "RASPBERRY"], vocab=voc)
-    #test_program = make_list(["CHERRY", "PINEAPPLE", "RASPBERRY"], vocab=voc)
+    test_program = make_list(["FRUITPUSH", "PINEAPPLE"], vocab=voc)
     
     #voc.add(test_program.name, test_program.v)
     
@@ -1418,7 +1539,7 @@ with model:
     
     nengo.Connection(control_unit.to_data_stack, inp.input)
     
-    nengo.Connection(control_unit.trigger, data_stack.sigin)
+    nengo.Connection(control_unit.clock_trigger, data_stack.sigin)
 
     nengo.Connection(control_unit.to_call_stack, call_stack.input)
     nengo.Connection(control_unit.call_stack_sigout, call_stack.sigin)
@@ -1436,6 +1557,7 @@ with model:
     nengo.Connection(wds_circuits.user_func_circuit.ctrl_sigout, control_unit.func_ctrl_sigin)
     nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, control_unit.from_user_func)
     nengo.Connection(call_stack.sigout, control_unit.call_stack_sigin)
+    nengo.Connection(call_stack.output, control_unit.from_call_stack)
     nengo.Connection(control_unit.func_ctrl_done, wds_circuits.user_func_circuit.output)
 
 #    function_decoder = spa.State(voc)
