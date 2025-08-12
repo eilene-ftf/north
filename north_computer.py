@@ -634,7 +634,7 @@ class ControlUnit(spa.Network):
             nengo.Connection(func_rtrn[-1], self.call_stack_sigout)
             nengo.Connection(self.func_ctrl[-1], self.func_ctrl_done)
 
-            self.to_return_stack = nengo.Node(d)
+            self.to_return_stack = nengo.Node(size_in=d)
             nengo.Connection(func_rtrn[d*2:d*3], self.to_return_stack)
             
     
@@ -1509,7 +1509,7 @@ with model:
         print(wds_circuits.user_func_circuit.table)
         print([v.name for v in wds_circuits.user_func_circuit.bindings.values()])
 
-    #return_stack = SimpleStack(label="return_stack")
+    return_stack = SimpleStack(label="return_stack")
     #ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
     call_stack = SimpleStack(stack=[make_list(["SASKATOON", "YUZU", "F_DUP"])],
                              label="call_stack")
