@@ -504,6 +504,7 @@ class ControlUnit(spa.Network):
                 state = 0
                 stopwatch = 0
                 stack_cmd = np.zeros(d)
+                to_rstack = np.zeros(d)
                 to_return = np.zeros(d)
 
                 def function_return(t, x):
@@ -519,9 +520,11 @@ class ControlUnit(spa.Network):
 
                     if state == 0 and not is_nil:
                         to_return = from_R_state
+                        to_rstack = np.zeros(d)
                     elif state == 0 and is_nil:
                         state = 1
                         stack_cmd = vocab['S_POP'].v
+                        to_rstack = vocab['S_DUMP'].v
                     elif state == 1 and stack_done_signal > theta:
                         state = 2
                         stack_cmd = np.zeros(d)
@@ -531,12 +534,13 @@ class ControlUnit(spa.Network):
                             to_return = vocab['S_CODE_HALT'].v
                     elif state == 2 and clock > 1-theta:
                         stopwatch = t
+                        to_rstack = np.zeros(d)
                         state = 3
                     elif state == 3 and t > stopwatch + t_resume:
                         state = 0
                     
                     #print(f'{t:.2f} {state} {from_T_state @ vocab["T_NIL"].v:.2f} {clock:.2f}')
-                    return np.concatenate([to_return, stack_cmd, [state]])
+                    return np.concatenate([to_return, stack_cmd, to_rstack, [state]])
                 return function_return
 
             def make_func_ctrl(vocab=voc):
@@ -629,6 +633,9 @@ class ControlUnit(spa.Network):
 
             nengo.Connection(func_rtrn[-1], self.call_stack_sigout)
             nengo.Connection(self.func_ctrl[-1], self.func_ctrl_done)
+
+            self.to_return_stack = nengo.Node(d)
+            nengo.Connection(func_rtrn[d*2:d*3], self.to_return_stack)
             
     
 class SimpleStack(spa.Network):
@@ -1560,5 +1567,7 @@ with model:
     nengo.Connection(call_stack.output, control_unit.from_call_stack)
     nengo.Connection(control_unit.func_ctrl_done, wds_circuits.user_func_circuit.output)
 
+    nengo.Connection(control_unit.to_return_stack, return_stack.input)
+    nengo.Connection(control_unit.call_stack_sigout, return_stack.sigin)
 #    function_decoder = spa.State(voc)
 #    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)

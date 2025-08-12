@@ -40,4 +40,4 @@
 - [x] Modify it to push the current tail to the call stack and put the retrieved program in the tail
     - [x] Then resume the program on the next clock tick
 - [x] Modify call stack behaviour to pop the top value (if any) into the tail if the tail is nil
-    - [ ] And dump the return stack
+    - [x] And dump the return stack
