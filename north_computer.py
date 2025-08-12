@@ -179,6 +179,7 @@ def create_control_node(vocab, theta=0.9):
         controlcode = spa.SemanticPointer(x[:d])
         branch1 = vocab['S_ORIG_1']
         branch2 = vocab['S_ORIG_2']
+        empty = vocab['S_CODE_ERR_STACKEMPTY']
         branch = []
         cos_sim1 = 0
         cos_sim2 = 0
@@ -189,7 +190,7 @@ def create_control_node(vocab, theta=0.9):
         thenb = vocab['F_THEN']
         #want not the dot product, but the scalar projection of control code onto both branch codes
 
-        if controlcode @ controlcode < theta:
+        if controlcode @ empty > theta:
             flag = 0
         else:
             cos_sim1 = vcos(controlcode, branch1)
@@ -211,8 +212,6 @@ def create_control_node(vocab, theta=0.9):
                     flag = 1
             if cos_sim2 > cos_sim1 and cos_sim2 > theta:
                 flag = 1
-                if x[-1] < 1-theta:
-                    flag = 0
                 if cos_sime > theta:
                     flag = 0
             if cos_simt > theta:
@@ -946,43 +945,15 @@ with model:
              'O1', 'O2', 'O3']
             )
 
-    def new_dummy(name=""):
-        dummy_circuit = spa.Network(f"{name} circuit")
-        with dummy_circuit:
-            dummy_circuit.sigin = nengo.Node(size_in=1, 
-                                            size_out=1, 
-                                            output=lambda _, x: x if x[0] > theta else 0, 
-                                            label="sigin",
-                                            )
-            dummy_circuit.sigout = nengo.Node(size_in=1, label="sigout")
-            dummy_circuit.type = spa.types.TScalar
-            dummy_circuit.input = dummy_circuit.sigin
-            dummy_circuit.output = dummy_circuit.sigout
-
-        return dummy_circuit
-   
     wds_circuits = spa.Network()
     with wds_circuits:
-        circuits_dict = {"F_FUNC":      new_dummy("F_FUNC"),
-                         "F_END":       new_dummy("F_END"),
-                         "F_PUSHRET":   new_dummy("F_PUSHRET"),
-                         "F_SWAP":      SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
-                         'F_PEEP':      new_dummy("F_PEEP"), 
-                         'F_ROT':       new_dummy("F_ROT"),  
-                         'F_SUB':       new_dummy("F_SUB"), 
-                         'F_DUP':       DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),  
-                         'F_PUT':       new_dummy("F_PUT"),  
-                         'F_POPRET':    new_dummy("F_POPRET"),  
-                         'F_ISNEG':     new_dummy("F_ISNEG"),
-                         'F_IF':        IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
-                         'F_DROP':      DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"),
+        circuits_dict = {'F_IF':        IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
                          'F_ELSE':      ElseCircuit(ctrl_flow_stack.stack, vocab=voc, label="ELSE Circuit"),
-                         'F_THEN':      ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
-                         'F_EXEC':      new_dummy("F_EXEC"),
-                         }
+                         'F_THEN':      ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit")
+                        }
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
-                 "APPLE", "BANANA", "CHERRY",
+                 "APPLE", "BANANA", "CHERRY", "PEACH", "FUUCK",
                  "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD', 'S_ORIG_1', 'S_ORIG_2', 'TRUE', 'FALSE',
                  ] + list(circuits_dict.keys())
     voc.populate("; ".join(voc_items))
@@ -996,7 +967,7 @@ with model:
     listail1 = cons(voc["APPLE"], voc["BANANA"])
     listail2 = cons(voc["BANANA"],voc["T_NIL"])
     
-    test_program = make_list(["TRUE", "F_IF", "APPLE", "F_ELSE", "CHERRY", "F_THEN", "BANANA"], vocab=voc)
+    test_program = make_list(["FALSE", "F_IF", "TRUE", "F_IF", "PEACH", "F_THEN","APPLE", "F_ELSE", "TRUE", "F_IF", "CHERRY", "F_THEN", "FUUCK", "F_THEN", "BANANA"], vocab=voc)
     
     voc.add(test_program.name, test_program.v)
     
