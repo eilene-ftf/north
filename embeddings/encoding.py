@@ -365,6 +365,16 @@ class EncodingEnvironment:
     cleanup_mem: AutoAssoc
 
     def savez(self, to_save: _FileLike) -> None:
+        """Serialize the encoding environment.
+
+        Given the path ``to_save``, we create new files ``<to_save>/codebook.npz``,
+        ``<to_save>/assoc_mem.npz``, and ``<to_save>/cleanup_mem.npz``. Each
+        of these contains the serialized forms of the embeddings.
+
+        Args:
+            to_save _FileLike: ``pathlib.Path``, `str`, or file-like object
+                which is the directory to save the embeddings to.
+        """
         to_save = Path(to_save)
         codebook_file = to_save / "codebook"
         assoc_mem_file = to_save / "assoc_mem"
