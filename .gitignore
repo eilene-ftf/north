@@ -201,7 +201,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-main.py
-pyproject.toml
-pyproject.toml
-uv.lock
