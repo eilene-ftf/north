@@ -2,7 +2,7 @@ import pathlib
 
 import numpy as np
 
-from forth import (
+from embeddings import (
     AutoAssoc,
     Codebook,
     EncodingEnvironment,
@@ -10,7 +10,6 @@ from forth import (
     encode,
     lex,
     savez,
-    decode,
 )
 
 if __name__ == "__main__":
@@ -20,7 +19,7 @@ if __name__ == "__main__":
 
     words = lex(buff)
     print()
-    print(words)
+    print([word.cont for word in words])
     print()
 
     dim = 200
@@ -40,5 +39,3 @@ if __name__ == "__main__":
 
     npzfile = np.load(f"./data/sample_program_dim{dim}/embeddings.npz")
     print(npzfile.files)
-
-    print(decode(npzfile["embeddings"], enc_env))
