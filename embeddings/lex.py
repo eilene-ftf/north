@@ -1,6 +1,5 @@
 """Lexical analysis for the FORTH programming language."""
 
-import sys
 from dataclasses import dataclass
 from enum import Enum, auto
 
