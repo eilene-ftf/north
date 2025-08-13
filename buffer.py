@@ -88,7 +88,7 @@ class RingBuffer(spa.Network):
                     elif np.abs(state) == 2 and t > stopwatch + t_delay + t_pulse:
                         state = 0
                         stopwatch = 0
-                        to_return[:] = 0
+                        #to_return[:] = 0
 
                     return np.concatenate([to_return, [0, state//2]])
 
