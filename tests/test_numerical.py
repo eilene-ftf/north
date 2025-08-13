@@ -129,13 +129,13 @@ def test_bin_and() -> None:
     theta = 0.8
     rng = np.random.default_rng(0)
 
-    b_five = num.encode(5, vocab, width=8, rng=rng) 
+    b_five = num.encode(5, vocab, width=8, rng=rng)
     b_four = num.encode(4, vocab, width=8, rng=rng)
 
     should_be_five = b_five.band(b_five)
     assert b_five.compare(should_be_five) > theta
     assert b_four.compare(b_five.band(b_four)) > theta
-    
+
     b_8 = num.encode(8, vocab, rng=rng)
     b_3 = num.encode(3, vocab, rng=rng)
     b_0 = num.encode(0, vocab, rng=rng)
@@ -143,8 +143,24 @@ def test_bin_and() -> None:
     assert b_0.compare(b_8.band(b_3)) > theta
 
 
-# def test_bin_or() -> None:
-#     pass
+def test_bin_or() -> None:
+    dim = 256
+    vocab_keys = ["S_0", "S_1", "S_2", "S_3", "S_4", "S_5", "S_6", "S_7"]
+    vocab = spa.Vocabulary(dim)
+    vocab.populate(";".join(vocab_keys))
+    theta = 0.8
+    rng = np.random.default_rng(0)
+
+    b_3 = num.encode(3, vocab, width=8, rng=rng)
+    b_5 = num.encode(5, vocab, width=8, rng=rng)
+    b_7 = num.encode(7, vocab, width=8, rng=rng)
+
+    assert b_7.compare(b_3.bor(b_5)) > theta
+
+    b_8 = num.encode(8, vocab, rng=rng)
+    b_11 = num.encode(11, vocab, rng=rng)
+
+    assert b_11.compare(b_8.bor(b_3)) > theta
 
 
 # def test_bin_xor() -> None:

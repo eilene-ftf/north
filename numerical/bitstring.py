@@ -51,13 +51,13 @@ class Bitstring(spa.SemanticPointer):
         raise NotImplementedError()
 
     def band(self, other: "Bitstring") -> "Bitstring":
-        """Bit-wise binary and between two Bitstrings.
+        """Bit-wise *and* between two `Bitstring`'s.
 
         Args:
             other Bitstring: the other argument.
 
         Returns:
-            `self XOR other`.
+            `self & other`.
         """
         if not self.check_same_width(other):
             raise ValueError(
@@ -76,7 +76,29 @@ class Bitstring(spa.SemanticPointer):
         )
 
     def bor(self, other: "Bitstring") -> "Bitstring":
-        raise NotImplementedError()
+        """Bit-wise *or* between two `Bitstring`'s.
+
+        Args:
+            other Bitstring: the other argument.
+
+        Returns:
+            `self | other`.
+        """
+        if not self.check_same_width(other):
+            raise ValueError(
+                f"Expected same width, got lhs {self.width} rhs {other.width}"
+            )
+
+        sbits = self.get_bits()
+        obits = other.get_bits()
+        return bitwise_or(
+            sbits,
+            obits,
+            vocab=self.vocab,
+            width=self.width,
+            lname=self.name,
+            rname=other.name,
+        )
 
     def bxor(self, other: "Bitstring") -> "Bitstring":
         raise NotImplementedError()
@@ -254,6 +276,46 @@ def bitwise_and(
     bs = []
     for lhs, rhs in zip(lhs_bits, rhs_bits):
         if lhs.compare(vocab["BIT_1"]) > theta and rhs.compare(vocab["BIT_1"]) > theta:
+            bs.append(vocab["BIT_1"])
+        else:
+            bs.append(vocab["BIT_0"])
+
+    if lname is not None and rname is not None:
+        new_name = str(
+            int(lname.removeprefix("BINARY_")) & int(rname.removeprefix("BINARY_"))
+        )
+        return from_list(bs, vocab, width, name=new_name)
+    else:
+        return from_list(bs, vocab, width)
+
+
+def bitwise_or(
+    lhs_bits: list[spa.SemanticPointer],
+    rhs_bits: list[spa.SemanticPointer],
+    vocab: spa.Vocabulary,
+    width: int,
+    theta: float = 0.8,
+    lname: typing.Optional[str] = None,
+    rname: typing.Optional[str] = None,
+) -> Bitstring:
+    """Bit-wise conjunction between two lists of semantic pointers.
+
+    Args:
+        lhs_bits, rhs_bits (list[spa.SemanticPointer]):
+            The bit pairs of the left and right hand side of the operation.
+        vocab spa.Vocabulary: The vocabulary
+        width int: The width of the encoding
+        theta float: Optional, for approximate comparison. Default: ``0.8``.
+        lname Optional[str]: Optional name of the left-hand side.
+        rname Optional[str]: Optional name of the right-hand side.
+
+    Returns:
+        The component-wise conjunction of the two represented values as a new
+        `Bitstring`.
+    """
+    bs = []
+    for lhs, rhs in zip(lhs_bits, rhs_bits):
+        if lhs.compare(vocab["BIT_1"]) > theta or rhs.compare(vocab["BIT_1"]) > theta:
             bs.append(vocab["BIT_1"])
         else:
             bs.append(vocab["BIT_0"])
