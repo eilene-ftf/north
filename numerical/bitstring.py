@@ -69,8 +69,10 @@ class Bitstring(spa.SemanticPointer):
         return bitwise_and(
             sbits,
             obits,
-            b_0=self.vocab["BIT_0"],
-            b_1=self.vocab["BIT_1"],
+            vocab=self.vocab,
+            width=self.width,
+            lname=self.name,
+            rname=other.name,
         )
 
     def bor(self, other: "Bitstring") -> "Bitstring":
@@ -107,6 +109,7 @@ def encode(
     n: int,
     vocabulary: spa.Vocabulary,
     width: int = 8,
+    rng=np.random.default_rng(),
 ) -> Bitstring:
     """Encode an integer into a `Bitstring` high-dimensional vector, of width
     `width`.
@@ -142,21 +145,21 @@ def encode(
     for i in range(width):
         if f"S_{i}" not in vocabulary:
             s_i = spa.SemanticPointer(
-                random(1, vocabulary.dimensions).squeeze(),
+                random(1, vocabulary.dimensions, rng=rng).squeeze(),
                 vocab=vocabulary,
                 name=f"S_{i}",
             )
             vocabulary.add(f"S_{i}", s_i)
     if "BIT_0" not in vocabulary:
         bit_0 = spa.SemanticPointer(
-            random(1, vocabulary.dimensions).squeeze(),
+            random(1, vocabulary.dimensions, rng=rng).squeeze(),
             vocab=vocabulary,
             name="BIT_0",
         )
         vocabulary.add("BIT_0", bit_0)
     if "BIT_1" not in vocabulary:
         bit_1 = spa.SemanticPointer(
-            random(1, vocabulary.dimensions).squeeze(),
+            random(1, vocabulary.dimensions, rng=rng).squeeze(),
             vocab=vocabulary,
             name="BIT_0",
         )
@@ -183,11 +186,82 @@ def encode(
     return sp
 
 
+def from_list(
+    sps: list[spa.SemanticPointer],
+    vocab: spa.Vocabulary,
+    width: int,
+    name: typing.Optional[str] = None,
+) -> Bitstring:
+    """Convert a list of semantic pointers into a Bitstring of with width ``width``.
+
+    Args:
+        sps list[spa.SemanticPointer]: The list of semantic pointers.
+        vocab spa.Vocabulary: The vocabulary used.
+        width int: The width of the integer representation.
+        name Optional[str]: The new name for the Bitstring. Default: ``None``.
+
+    Returns:
+        The Bitstring encoding.
+    """
+    if width < len(sps):
+        print(
+            "WARNING: decreasing width of representation may lead to loss of information",
+            file=sys.stderr,
+        )
+
+    width_markers = []
+    for i in range(width):
+        width_markers.append(vocab[f"S_{i}"])
+
+    brep = np.zeros(vocab.dimensions)
+    for i, marker in enumerate(width_markers):
+        if i < len(sps):
+            brep += (marker * sps[i]).v
+        else:
+            brep += (marker * vocab["B_0"]).v
+
+    brep_name = f"BINARY_{name}" if name else None
+    sp = Bitstring(brep, vocab=vocab, name=brep_name, width=width)
+    if brep_name and brep_name not in vocab:
+        vocab.add(brep_name, sp)
+    return sp
+
+
 def bitwise_and(
     lhs_bits: list[spa.SemanticPointer],
     rhs_bits: list[spa.SemanticPointer],
-    b_0: spa.SemanticPointer,
-    b_1: spa.SemanticPointer,
+    vocab: spa.Vocabulary,
+    width: int,
+    theta: float = 0.8,
+    lname: typing.Optional[str] = None,
+    rname: typing.Optional[str] = None,
 ) -> Bitstring:
-    """Bit-wise"""
-    raise NotImplementedError()
+    """Bit-wise conjunction between two lists of semantic pointers.
+
+    Args:
+        lhs_bits, rhs_bits (list[spa.SemanticPointer]):
+            The bit pairs of the left and right hand side of the operation.
+        vocab spa.Vocabulary: The vocabulary
+        width int: The width of the encoding
+        theta float: Optional, for approximate comparison. Default: ``0.8``.
+        lname Optional[str]: Optional name of the left-hand side.
+        rname Optional[str]: Optional name of the right-hand side.
+
+    Returns:
+        The component-wise conjunction of the two represented values as a new
+        `Bitstring`.
+    """
+    bs = []
+    for lhs, rhs in zip(lhs_bits, rhs_bits):
+        if lhs.compare(vocab["BIT_1"]) > theta and rhs.compare(vocab["BIT_1"]) > theta:
+            bs.append(vocab["BIT_1"])
+        else:
+            bs.append(vocab["BIT_0"])
+
+    if lname is not None and rname is not None:
+        new_name = str(
+            int(lname.removeprefix("BINARY_")) & int(rname.removeprefix("BINARY_"))
+        )
+        return from_list(bs, vocab, width, name=new_name)
+    else:
+        return from_list(bs, vocab, width)
