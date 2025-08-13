@@ -646,7 +646,7 @@ def make_stack_out(stack):
             sigout = 0
         return np.concatenate((state, [sigout]))
     
-        return stack_out
+    return stack_out
 
 
 class SimpleStack(spa.Network):
@@ -762,19 +762,22 @@ def create_control_node(vocab, theta=theta):
 
         if vcos(controlcode, empty) > theta:
             flag = 0
-        if vcos(controlcode,branch1) > theta:
-            flag = 1 
-            if x[-1] < theta:
-                flag = 0
-            if vcos(header, elseb) > theta:
+        if vcos(controlcode,branch1) > 1 - theta:
+            #print("condition met")
+            flag = 0
+            if x[-1] > 1-theta:
+                #print("still ignoring")
                 flag = 1
-        if vcos(controlcode, branch2) > theta:
-            flag = 0 
-            if x[-1] > theta: 
+            if vcos(header, elseb) > 1 - theta:
+                #print("skip/ignore else branch")
                 flag = 1
-            if vcos(header, elseb) > theta:
+        if vcos(controlcode, branch2) > 1 - theta:
+            #print("condition not met -> input is")
+            flag = 1
+            if vcos(header, elseb) > 1 - theta:
+                #print("second branch starting")
                 flag = 0
-        elif vcos(header, thenb) > theta:
+        if vcos(header, thenb) > 1 - theta:
             flag = 0
         return flag 
 
@@ -1605,7 +1608,7 @@ with model:
         voc.populate('; '.join(fruits))
 
         table = {'FRUITSWAP': ['LYCHEE', 'MANGO', 'F_SWAP'],
-                 'FRUITREADY': ['FALSE', 'F_IF', 'MANGO', 'F_ELSE', 'LYCHEE', 'F_THEN', 'BANANA']
+                 'FRUITREADY': ['TRUE', 'F_IF', 'FRUITSWAP', 'F_ELSE', 'LYCHEE', 'F_THEN', 'BANANA']
                  }                
 
 
@@ -1633,7 +1636,7 @@ with model:
     result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list([ "FRUITREADY", "APPLE"], vocab=voc)
+    test_program = make_list(["CHERRY", "FRUITSWAP", "CHERRY", "MANGO"], vocab=voc)
 
     
     #voc.add(test_program.name, test_program.v)
