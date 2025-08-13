@@ -508,7 +508,7 @@ class ControlUnit(spa.Network):
                 to_return = np.zeros(d)
 
                 def function_return(t, x):
-                    nonlocal state, stopwatch, to_return, stack_cmd
+                    nonlocal state, stopwatch, to_return, stack_cmd, to_rstack 
                     
                     from_R_state = x[:d]
                     from_T_state = x[d:d*2]
