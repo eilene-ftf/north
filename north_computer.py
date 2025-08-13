@@ -21,73 +21,6 @@ assert t_ctrl < t_busy and t_busy < t_done
 voc = spa.Vocabulary(d)
 
 
-def make_stack_in(stack, tag='stack'):
-    stopwatch = 0
-    state = 0
-    out = np.zeros(d)
-    
-    def stack_in(t, x, vocab=voc):
-        nonlocal stopwatch, state, out
-        if t < 0.1 and stack:
-            del stack[:]
-            print(f'{tag} state: {[p.name for p in stack]}')
-        sig = x[d]
-        inp = spa.SemanticPointer(x[:d])
-        #if tag == "call_stack": print(sig, state)
-        if state == 0 and sig > 1-theta:
-            state = 1
-            stopwatch = t
-            if vcos(inp, vocab['S_PUSH']) > theta:
-                stack.append(cleanup(inp - vocab['S_PUSH']))
-                print(f'{tag} state: {[p.name for p in stack]}')
-            elif vcos(inp, vocab['S_PEEK']) > theta:
-                out = vocab['S_PEEK'].v
-                print(f'{tag} state: {[p.name for p in stack]}')
-            elif vcos(inp, vocab['S_POP']) > theta:
-                out = vocab['S_POP'].v
-                print(f'{tag} state: {[p.name for p in stack]}')
-            elif vcos(inp, vocab['S_DUMP']) > theta:
-                del stack[:]
-                print(f'{tag} state: {[p.name for p in stack]}')
-        if state == 1 and sig < theta and t > stopwatch + t_stack:
-            state = 0
-            out = np.zeros(d)
-        # print([v.name for v in stack])
-        return np.concatenate((out, [state]))
-    
-    return stack_in
-    
-def make_stack_out(stack):
-    stopwatch = 0
-    state = np.zeros(d)
-    sigout = 0
-    
-    def stack_out(t, x, vocab=voc):
-        nonlocal stopwatch, state, sigout
-        sig = x[d]
-        inp = spa.SemanticPointer(x[:d])
-        if sigout == 0 and sig > 1-theta:
-            sigout = 1
-            stopwatch = t
-            if vcos(inp, vocab['S_PEEK']) > theta:
-                print("peek!")
-                if stack:
-                    state = stack[-1].v
-                else:
-                    state = vocab['S_CODE_ERR_STACKEMPTY'].v
-            elif vcos(inp, vocab['S_POP']) > theta:
-                print("pop!")
-                if stack:
-                    state = stack.pop().v
-                else:
-                    state = vocab['S_CODE_ERR_STACKEMPTY'].v
-                print([p.name for p in stack])
-        if sigout == 1 and t > stopwatch + t_stack:
-            sigout = 0
-        return np.concatenate((state, [sigout]))
-    
-    return stack_out
-
 # An object to contain all the base symbols in both their string and
 # holographic vector representations
 # A string s can be looked up, given an HRR h, for lexicon L, with L.reverse[h]
@@ -307,6 +240,18 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.holo_node, mod_node[d:d*2])
 
 
+            control_check = nengo.Node(
+                    create_control_node(voc),
+                    size_in=2*voc.dimensions + 1, 
+                    size_out=2*voc.dimensions + 1, 
+                    label="control_flag")
+
+            self.flag_control = control_check
+           
+            nengo.Connection(output_state.output, control_check[:d])
+            nengo.Connection(control_check[:d], mod_node[:d])
+            nengo.Connection(control_check[-1], control_check[-1])
+
             self.is_paused = nengo.Node(size_in=1, label="paused?")
             nengo.Connection(mod_node[-1], self.is_paused)
 
@@ -316,7 +261,6 @@ class ControlUnit(spa.Network):
             self.to_dispatcher = nengo.Node(size_in=d, label="to_dispatcher")
             nengo.Connection(mod_node[d:d*2], self.to_dispatcher)
             
-            nengo.Connection(output_state.output, mod_node[:d])
             
             self.input_node = nengo.Node(output=self.vector_numbers, label="input_node")
             self.word_busy = nengo.Node(size_in=1, label="word_busy")
@@ -637,7 +581,74 @@ class ControlUnit(spa.Network):
             self.to_return_stack = nengo.Node(size_in=d)
             nengo.Connection(func_rtrn[d*2:d*3], self.to_return_stack)
             
+def make_stack_in(stack, tag='stack'):
+    stopwatch = 0
+    state = 0
+    out = np.zeros(d)
     
+    def stack_in(t, x, vocab=voc):
+        nonlocal stopwatch, state, out
+        if t < 0.1 and stack:
+            del stack[:]
+            print(f'{tag} state: {[p.name for p in stack]}')
+        sig = x[d]
+        inp = spa.SemanticPointer(x[:d])
+        #if tag == "call_stack": print(sig, state)
+        if state == 0 and sig > 1-theta:
+            state = 1
+            stopwatch = t
+            if vcos(inp, vocab['S_PUSH']) > theta:
+                stack.append(cleanup(inp - vocab['S_PUSH']))
+                print(f'{tag} state: {[p.name for p in stack]}')
+            elif vcos(inp, vocab['S_PEEK']) > theta:
+                out = vocab['S_PEEK'].v
+                print(f'{tag} state: {[p.name for p in stack]}')
+            elif vcos(inp, vocab['S_POP']) > theta:
+                out = vocab['S_POP'].v
+                print(f'{tag} state: {[p.name for p in stack]}')
+            elif vcos(inp, vocab['S_DUMP']) > theta:
+                del stack[:]
+                print(f'{tag} state: {[p.name for p in stack]}')
+        if state == 1 and sig < theta and t > stopwatch + t_stack:
+            state = 0
+            out = np.zeros(d)
+        # print([v.name for v in stack])
+        return np.concatenate((out, [state]))
+
+    return stack_in
+    
+def make_stack_out(stack):
+    stopwatch = 0
+    state = np.zeros(d)
+    sigout = 0
+    
+    def stack_out(t, x, vocab=voc):
+        nonlocal stopwatch, state, sigout
+        sig = x[d]
+        inp = spa.SemanticPointer(x[:d])
+        if sigout == 0 and sig > 1-theta:
+            sigout = 1
+            stopwatch = t
+            if vcos(inp, vocab['S_PEEK']) > theta:
+                print("peek!")
+                if stack:
+                    state = stack[-1].v
+                else:
+                    state = vocab['S_CODE_ERR_STACKEMPTY'].v
+            elif vcos(inp, vocab['S_POP']) > theta:
+                print("pop!")
+                if stack:
+                    state = stack.pop().v
+                else:
+                    state = vocab['S_CODE_ERR_STACKEMPTY'].v
+                print([p.name for p in stack])
+        if sigout == 1 and t > stopwatch + t_stack:
+            sigout = 0
+        return np.concatenate((state, [sigout]))
+    
+        return stack_out
+
+
 class SimpleStack(spa.Network):
     def __init__(self, stack=[], d=d, label="stack memory"):
         super().__init__(label=label)
@@ -663,6 +674,7 @@ class SimpleStack(spa.Network):
             nengo.Connection(stack_out[d], self.sigout)
             nengo.Connection(stack_out[:d], self.output)
 
+    
 class SemanticNode(nengo.Node):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -727,6 +739,53 @@ class Dispatcher(spa.Network):
         nengo.Connection(circuits.user_func_circuit.output, busy_node[1])
 
         #print(list(circuits_dict.items())[:4])
+def create_control_node(vocab, theta=theta):
+    d = vocab.dimensions
+    output = []
+    
+    def flag_switcher(t, x):
+        controlcode = spa.SemanticPointer(x[d:d*2])
+        branch1 = vocab['S_ORIG_1']
+        branch2 = vocab['S_ORIG_2']
+        empty = vocab['S_CODE_ERR_STACKEMPTY']
+        
+        flag = x[-1]
+        header = spa.SemanticPointer(x[:d])
+        
+        ifb = vocab['F_IF']
+        elseb = vocab['F_ELSE']
+        thenb = vocab['F_THEN']
+        #want not the dot product, but the scalar projection of control code onto both branch codes
+
+        if vcos(controlcode, empty) > theta:
+            flag = 0
+        if vcos(controlcode,branch1) > theta:
+            flag = 1 
+            if x[-1] < theta:
+                flag = 0
+            if vcos(header, elseb) > theta:
+                flag = 1
+        if vcos(controlcode, branch2) > theta:
+            flag = 0 
+            if x[-1] > theta: 
+                flag = 1
+            if vcos(header, elseb) > theta:
+                flag = 0
+        elif vcos(header, thenb) > theta:
+            flag = 0
+        return flag 
+
+    def control_flow_state(t, x):
+        nonlocal output
+        header = x[:d]
+        peep = vocab['S_PEEK'].v
+        flag = flag_switcher(t,x)
+        if flag == 0:
+            output = np.concatenate((header, peep, [flag]))
+        elif flag == 1:
+            output = np.concatenate((np.zeros(len(header)), peep, [flag]))
+        return output
+    return control_flow_state 
 
 def create_modification_node(vocab, circuits, theta=0.2):
     d = vocab.dimensions
@@ -1167,9 +1226,12 @@ class EndCircuit(WordCircuit):
                 nengo.Connection(self.input, end_definer)
                 nengo.Connection(end_definer, self.output)
 
+
 class IfCircuit(WordCircuit):
     """IF conditional execution
     Pops flag, pushes control flow state
+
+
     """
     def __init__(self, stack, ctrl_flow_stack, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1179,7 +1241,7 @@ class IfCircuit(WordCircuit):
 
         if isinstance(stack, list) and isinstance(ctrl_flow_stack, list):
             with self:
-                def make_if(stack, ctrl_stack, vocab):
+                def make_if(stack, ctrl_flow_stack, vocab):
                     state = 0
                     stopwatch = 0
                     def if_stmt(t, x):
@@ -1191,13 +1253,14 @@ class IfCircuit(WordCircuit):
                                 # Check if condition is true
                                 is_true = vcos(flag, vocab['TRUE']) > theta
                                 # Push execution state to control flow stack
-                                ctrl_stack.append(vocab['TRUE'] if is_true else vocab['FALSE'])
+                                ctrl_flow_stack.append(vocab['S_ORIG_1'] if is_true else vocab['S_ORIG_2'])
                                 print(f"IF: condition is {'true' if is_true else 'false'}")
-                                print([p.name for p in ctrl_stack])
+                                print([p.name for p in ctrl_flow_stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                            state = 0
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
                             state = 0
                             stopwatch = 0
                         return state
@@ -1205,6 +1268,41 @@ class IfCircuit(WordCircuit):
                 if_processor = nengo.Node(size_in=1, output=make_if(self.stack, self.ctrl_flow_stack, self.vocab))
                 nengo.Connection(self.input, if_processor)
                 nengo.Connection(if_processor, self.output)
+
+class ElseCircuit(WordCircuit):
+    """THEN end conditional
+    Pops control flow state
+    """
+    def __init__(self, ctrl_flow_stack, vocab=voc, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.ctrl_flow_stack = ctrl_flow_stack
+        self.vocab = vocab
+
+        if isinstance(ctrl_flow_stack, list):
+            with self:
+                def make_else(ctrl_flow_stack, vocab):
+                    state = 0
+                    stopwatch = 0
+                    def then_stmt(t, x):
+                        nonlocal state, stopwatch
+                        go = x[0]
+                        if state == 0 and go > theta and stopwatch == 0:
+                            if ctrl_flow_stack:
+                                # Pop control flow state
+                                condition = ctrl_flow_stack.pop()
+                                print(f"ELSE: running branch when condition false")
+                                print([p.name for p in ctrl_flow_stack])
+                            stopwatch = t
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
+                            state = 1
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
+                            state = 0
+                            stopwatch = 0
+                        return state
+                    return then_stmt
+                else_processor = nengo.Node(size_in=1, output=make_else(self.ctrl_flow_stack, self.vocab))
+                nengo.Connection(self.input, else_processor)
+                nengo.Connection(else_processor, self.output)
 
 class ThenCircuit(WordCircuit):
     """THEN end conditional
@@ -1217,22 +1315,22 @@ class ThenCircuit(WordCircuit):
 
         if isinstance(ctrl_flow_stack, list):
             with self:
-                def make_then(ctrl_stack, vocab):
+                def make_then(ctrl_flow_stack, vocab):
                     state = 0
                     stopwatch = 0
                     def then_stmt(t, x):
                         nonlocal state, stopwatch
                         go = x[0]
                         if state == 0 and go > theta and stopwatch == 0:
-                            if ctrl_stack:
+                            if ctrl_flow_stack:
                                 # Pop control flow state
-                                condition = ctrl_stack.pop()
+                                condition = ctrl_flow_stack.pop()
                                 print(f"THEN: ending conditional block")
-                                print([p.name for p in ctrl_stack])
+                                print([p.name for p in ctrl_flow_stack])
                             stopwatch = t
-                        elif state == 0 and go > theta and t > stopwatch + t_busy:
+                        elif state == 0 and go > theta and t > stopwatch + 1.25:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                        elif state == 1 and go < theta and t > stopwatch + 1.75:
                             state = 0
                             stopwatch = 0
                         return state
@@ -1445,7 +1543,10 @@ with model:
     """
     
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
-                 "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_CODE_HALT'
+                 "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", 
+                 "S_CODE_ERR_STACKEMPTY", 'S_CODE_HALT', 
+                 "S_ORIG_2", "S_ORIG_1",
+                 "TRUE", "FALSE"
                  ] 
     voc.populate("; ".join(voc_items))
 
@@ -1472,7 +1573,8 @@ with model:
 
         return dummy_circuit
     data_stack = SimpleStack(label="data_stack")
-   
+    ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
+        
     wds_circuits = spa.Network("Words Circuits")
     with wds_circuits:
         wds_circuits.circuits_dict = {
@@ -1486,8 +1588,9 @@ with model:
             #"F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
             #"F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
             #"F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
-            #"F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
-            #"F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
+            "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
+            "F_ELSE":       ElseCircuit(ctrl_flow_stack.stack, vocab=voc, label="ELSE Circuit"),
+            "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
         }
 
         voc.populate('; '.join(list(wds_circuits.circuits_dict.keys())))
@@ -1499,9 +1602,8 @@ with model:
         voc.populate('; '.join(fruits))
 
         table = {'FRUITSWAP': ['LYCHEE', 'MANGO', 'F_SWAP'],
-                 'FRUITDROP': ['KUMQUAT', 'TANGERINE', 'F_DROP'],
-                 'FRUITPUSH': ['YUZU']
-                }
+                 'FRUITREADY': ['FALSE', 'F_IF', 'MANGO', 'F_ELSE', 'LYCHEE', 'F_THEN', 'BANANA']
+                 }                
 
 
         wds_circuits.user_func_circuit = UserFuncCircuit(user_table=table)
@@ -1509,10 +1611,8 @@ with model:
         print(wds_circuits.user_func_circuit.table)
         print([v.name for v in wds_circuits.user_func_circuit.bindings.values()])
 
+    call_stack = SimpleStack(label="call_stack")
     return_stack = SimpleStack(label="return_stack")
-    #ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
-    call_stack = SimpleStack(stack=[make_list(["SASKATOON", "YUZU", "F_DUP"])],
-                             label="call_stack")
 
 
 
@@ -1530,16 +1630,19 @@ with model:
     result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list(["FRUITPUSH", "PINEAPPLE"], vocab=voc)
+    test_program = make_list([ "FRUITREADY", "APPLE"], vocab=voc)
+
     
     #voc.add(test_program.name, test_program.v)
     
     inp = spa.State(voc)
     out = spa.State(voc)
+    c_inp = spa.State(voc)
     
     
     nengo.Connection(inp.output, data_stack.input)
     nengo.Connection(data_stack.output, out.input)
+    nengo.Connection(c_inp.output, ctrl_flow_stack.input)
 
     control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", vocab=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict)
 
@@ -1547,6 +1650,7 @@ with model:
     nengo.Connection(control_unit.to_data_stack, inp.input)
     
     nengo.Connection(control_unit.clock_trigger, data_stack.sigin)
+    nengo.Connection(control_unit.clock_trigger, ctrl_flow_stack.sigin)
 
     nengo.Connection(control_unit.to_call_stack, call_stack.input)
     nengo.Connection(control_unit.call_stack_sigout, call_stack.sigin)
@@ -1560,12 +1664,15 @@ with model:
     nengo.Connection(control_unit.to_dispatcher, dispatcher.input)
     nengo.Connection(control_unit.to_dispatcher, wds_circuits.user_func_circuit.func_key)
     nengo.Connection(wds_circuits.user_func_circuit.holo_node, dispatcher.holo_node)
+
     nengo.Connection(wds_circuits.user_func_circuit.holo_node, control_unit.holo_node)
     nengo.Connection(wds_circuits.user_func_circuit.ctrl_sigout, control_unit.func_ctrl_sigin)
     nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, control_unit.from_user_func)
     nengo.Connection(call_stack.sigout, control_unit.call_stack_sigin)
     nengo.Connection(call_stack.output, control_unit.from_call_stack)
     nengo.Connection(control_unit.func_ctrl_done, wds_circuits.user_func_circuit.output)
+    nengo.Connection(control_unit.flag_control[d:d*2], c_inp.input)
+    nengo.Connection(ctrl_flow_stack.output, control_unit.flag_control[d:d*2])
 
     nengo.Connection(control_unit.to_return_stack, return_stack.input)
     nengo.Connection(control_unit.call_stack_sigout, return_stack.sigin)
