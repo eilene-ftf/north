@@ -174,8 +174,10 @@ class RingBuffer(spa.Network):
             raise StopIteration
         return self.pop()
 
-    def put(self, value):
-        self._buffer[self._write_head, :] = value[:]
+    def put(self, item):
+        if isinstance(item, spa.SemanticPointer):
+            item = item.v
+        self._buffer[self._write_head, :] = item[:]
         self._write_head = (self._write_head + 1) % self.buf_size
         if self._write_head == (self._read_head + 1) % self.buf_size:
             self._read_head = (self._read_head + 1) % self.buf_size
@@ -193,6 +195,10 @@ class RingBuffer(spa.Network):
         item = self._buffer[self._read_head]
 
         return item
+
+    def put_list(self, lis):
+        for item in lis:
+            self.put(item)
 
     def _format_array(self, arr):
         return "  ".join([f'{item:5.2f}' for item in arr])
