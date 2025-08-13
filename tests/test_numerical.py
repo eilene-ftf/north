@@ -142,6 +142,11 @@ def test_bin_and() -> None:
 
     assert b_0.compare(b_8.band(b_3)) > theta
 
+    b_33 = num.encode(33, vocab, rng=rng)
+    b_41 = num.encode(41, vocab, rng=rng)
+
+    assert b_41.compare(b_33.bxor(b_8)) > theta
+
 
 def test_bin_or() -> None:
     dim = 256
@@ -163,12 +168,19 @@ def test_bin_or() -> None:
     assert b_11.compare(b_8.bor(b_3)) > theta
 
 
-# def test_bin_xor() -> None:
-#     pass
+def test_bin_xor() -> None:
+    dim = 256
+    vocab_keys = ["S_0", "S_1", "S_2", "S_3", "S_4", "S_5", "S_6", "S_7"]
+    vocab = spa.Vocabulary(dim)
+    vocab.populate(";".join(vocab_keys))
+    theta = 0.8
+    rng = np.random.default_rng(0)
 
+    b_3 = num.encode(3, vocab, width=8, rng=rng)
+    b_5 = num.encode(5, vocab, width=8, rng=rng)
+    b_6 = num.encode(6, vocab, width=8, rng=rng)
 
-# def test_bin_to_bits() -> None:
-#     pass
+    assert b_6.compare(b_3.bxor(b_5)) > theta
 
 
 def test_from_list_bits() -> None:

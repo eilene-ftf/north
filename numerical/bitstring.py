@@ -101,10 +101,34 @@ class Bitstring(spa.SemanticPointer):
         )
 
     def bxor(self, other: "Bitstring") -> "Bitstring":
-        raise NotImplementedError()
+        """Bit-wise *or* between two `Bitstring`'s.
+
+        Args:
+            other Bitstring: the other argument.
+
+        Returns:
+            `self ^ other`.
+        """
+        sbits = self.get_bits()
+        obits = other.get_bits()
+        return bitwise_xor(
+            sbits,
+            obits,
+            vocab=self.vocab,
+            width=self.width,
+            lname=self.name,
+            rname=other.name,
+        )
 
     def bnot(self) -> "Bitstring":
-        raise NotImplementedError()
+        """Bit-wise *negation* of a `Bitstring`."""
+        sbits = self.get_bits()
+        return bitwise_not(
+            sbits,
+            vocab=self.vocab,
+            width=self.width,
+            name=self.name
+        )
 
     def check_same_width(self, other: "Bitstring") -> bool:
         return self.width == other.width
@@ -298,7 +322,7 @@ def bitwise_or(
     lname: typing.Optional[str] = None,
     rname: typing.Optional[str] = None,
 ) -> Bitstring:
-    """Bit-wise conjunction between two lists of semantic pointers.
+    """Bit-wise disjunction between two lists of semantic pointers.
 
     Args:
         lhs_bits, rhs_bits (list[spa.SemanticPointer]):
@@ -310,7 +334,7 @@ def bitwise_or(
         rname Optional[str]: Optional name of the right-hand side.
 
     Returns:
-        The component-wise conjunction of the two represented values as a new
+        The component-wise disjunction of the two represented values as a new
         `Bitstring`.
     """
     bs = []
@@ -323,6 +347,88 @@ def bitwise_or(
     if lname is not None and rname is not None:
         new_name = str(
             int(lname.removeprefix("BINARY_")) & int(rname.removeprefix("BINARY_"))
+        )
+        return from_list(bs, vocab, width, name=new_name)
+    else:
+        return from_list(bs, vocab, width)
+
+
+def bitwise_xor(
+    lhs_bits: list[spa.SemanticPointer],
+    rhs_bits: list[spa.SemanticPointer],
+    vocab: spa.Vocabulary,
+    width: int,
+    theta: float = 0.8,
+    lname: typing.Optional[str] = None,
+    rname: typing.Optional[str] = None,
+) -> Bitstring:
+    """Bit-wise xor between two lists of semantic pointers.
+
+    Args:
+        lhs_bits, rhs_bits (list[spa.SemanticPointer]):
+            The bit pairs of the left and right hand side of the operation.
+        vocab spa.Vocabulary: The vocabulary
+        width int: The width of the encoding
+        theta float: Optional, for approximate comparison. Default: ``0.8``.
+        lname Optional[str]: Optional name of the left-hand side.
+        rname Optional[str]: Optional name of the right-hand side.
+
+    Returns:
+        The component-wise xor of the two represented values as a new
+        `Bitstring`.
+    """
+    bs = []
+    for lhs, rhs in zip(lhs_bits, rhs_bits):
+        if (
+            lhs.compare(vocab["BIT_1"]) > theta
+            and (not rhs.compare(vocab["BIT_1"]) > theta)
+        ) or (
+            (not lhs.compare(vocab["BIT_1"]) > theta)
+            and rhs.compare(vocab["BIT_1"]) > theta
+        ):
+            bs.append(vocab["BIT_1"])
+        else:
+            bs.append(vocab["BIT_0"])
+
+    if lname is not None and rname is not None:
+        new_name = str(
+            int(lname.removeprefix("BINARY_")) & int(rname.removeprefix("BINARY_"))
+        )
+        return from_list(bs, vocab, width, name=new_name)
+    else:
+        return from_list(bs, vocab, width)
+
+
+def bitwise_not(
+    bits: list[spa.SemanticPointer],
+    vocab: spa.Vocabulary,
+    width: int,
+    theta: float = 0.8,
+    name: typing.Optional[str] = None,
+) -> Bitstring:
+    """Bit-wise negation between two lists of semantic pointers.
+
+    Args:
+        bits (list[spa.SemanticPointer]): Bitstring to invert.
+        vocab spa.Vocabulary: The vocabulary
+        width int: The width of the encoding
+        theta float: Optional, for approximate comparison. Default: ``0.8``.
+        lname Optional[str]: Optional name of the left-hand side.
+        rname Optional[str]: Optional name of the right-hand side.
+
+    Returns:
+        The component-wise xor of the two represented values as a new
+        `Bitstring`.
+    """
+    bs = []
+    for bit in bits:
+        if bit.compare(vocab["BIT_1"]) > theta:
+            bs.append(vocab["BIT_0"])
+        else:
+            bs.append(vocab["BIT_1"])
+    if name is not None:
+        new_name = str(
+            -~int(name.removeprefix("BINARY_"))
         )
         return from_list(bs, vocab, width, name=new_name)
     else:
