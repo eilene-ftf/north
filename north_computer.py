@@ -650,10 +650,13 @@ def make_stack_out(stack):
 
 
 class SimpleStack(spa.Network):
-    def __init__(self, stack=[], d=d, label="stack memory"):
+    def __init__(self, stack=None, d=d, label="stack memory"):
         super().__init__(label=label)
         self.d = d
-        self.stack = stack
+        if stack is not None:
+            self.stack = stack
+        else:
+            self.stack = []
         
         with self:
             stack_in = nengo.Node(size_in=self.d+1, 
@@ -1614,7 +1617,7 @@ with model:
     call_stack = SimpleStack(label="call_stack")
     return_stack = SimpleStack(label="return_stack")
 
-
+    assert ctrl_flow_stack.stack is not call_stack.stack
 
     # holo = sum([voc[c].v for c in circuits_dict.keys()])
     # print(np.sqrt(len(circuits_dict.values())), 
