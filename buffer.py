@@ -2,17 +2,9 @@ import numpy as np
 import nengo
 import nengo_spa as spa
 
+theta = 0.3
+t_delay = 0.1
 t_pulse = 0.2
-
-class SemanticNode(nengo.Node):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-        self.type = spa.types.TScalar
-        self.input = self
-
-    def connect_to(self, other, **kwargs):
-        return nengo.Connection(self, other, **kwargs)
 
 # if sub_req is false, sigout should pulse on each put and we should pop at regular intervals
 # if pub_req is false, we should put at regular intervals and pulse sigout whenever something is popped
@@ -24,7 +16,7 @@ class RingBuffer(spa.Network):
         self.buf_size = buf_size
         self._width = int(np.log10(self.buf_size-1)) + 1
         self._buffer = np.zeros((self.buf_size, dim))
-        self._read_head = self.buf_size-1
+        self._read_head = self.buf_size - 1
         self._write_head = 0
         self._iter_flag = False
         
@@ -50,17 +42,55 @@ class RingBuffer(spa.Network):
         with self:
             def make_write_state_machine(pub_req):
                 state = 0
+                stopwatch = 0
                 def write_state_machine(t, x):
-                    nonlocal state
+                    nonlocal state, stopwatch
                     from_pub = x[:self.dim]
                     pub_sigin = x[-1]
-                    sub_sigin = x[-2]
+
+                    if state == 0 and pub_sigin > theta:
+                        state = 1
+                        self.put(from_pub)
+                        stopwatch = t
+                        print(self, 'put!')
+                    elif state == 1 and t > stopwatch + t_delay:
+                        state = 2
+                    elif state == 2 and t > stopwatch + t_delay + t_pulse:
+                        state = 0
+                        stopwatch = 0
+
+                    return [0, state==2]
+
                 return write_state_machine
 
             def make_read_state_machine(sub_req):
                 state = 0
+                stopwatch = 0
+                to_return = np.zeros(self.dim)
                 def read_state_machine(t, x):
-                    nonlocal state
+                    nonlocal state, stopwatch, to_return
+
+                    sub_sigin = x[-1]
+
+                    if state == 0 and sub_sigin > theta:
+                        try:
+                            to_return[:] = self.pop()
+                            state = 1
+                        except IndexError:
+                            to_return[:] = 0
+                            state = -1
+                        stopwatch = t
+                        print(self, "popped!")
+                    elif state == 1 and t > stopwatch + t_delay:
+                        state = 2
+                    elif state == -1 and t > stopwatch + t_delay:
+                        state = -2
+                    elif np.abs(state) == 2 and t > stopwatch + t_delay + t_pulse:
+                        state = 0
+                        stopwatch = 0
+                        to_return[:] = 0
+
+                    return np.concatenate([to_return, [0, state//2]])
 
                 return read_state_machine
 
@@ -137,18 +167,20 @@ class RingBuffer(spa.Network):
         self._iter_flag = False
 
     def pop(self):
-        if self._iter_flag:
-            raise IndexError("Queue is empty!")
-        item = self._buffer[self._read_head]
         if self._read_head != (self._write_head - 1) % self.buf_size:
             self._read_head = (self._read_head + 1) % self.buf_size
         else:
             self._iter_flag = True
+        
+        if self._iter_flag:
+            raise IndexError("Queue is empty!")
+        
+        item = self._buffer[self._read_head]
 
         return item
 
     def _format_array(self, arr):
-        return "  ".join([f'{item:.2f}' for item in arr])
+        return "  ".join([f'{item:5.2f}' for item in arr])
 
     def __str__(self):
         rep = ""
@@ -207,7 +239,7 @@ class RingBuffer(spa.Network):
                         
                             rep += lines[0] + '                ...\n' + lines[1]
                     
-                    if self._read_head != self.buf_size - 4 and self._write_head != self.size - 4:
+                    if self._read_head != self.buf_size - 4 and self._write_head != self.buf_size - 4:
                         rep += '                ...\n'
                 else:
                     rep += '                ...\n'
@@ -280,13 +312,4 @@ class RingBuffer(spa.Network):
         return rep
 
 
-
-model = spa.Network()
-with model:
-    d = 256
-    s = 10
-    pub = spa.Network()
-    sub = spa.Network()
-    buffer = RingBuffer(buf_size=s, dim=d, pub=pub, sub=sub, label="MyBuffer")
-    buffer2 = RingBuffer(buf_size=s, dim=d, pub=pub, sub=sub, label="MySecondBuffer")
 
