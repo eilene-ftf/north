@@ -1,8 +1,7 @@
 import pytest
 
 import nengo_spa as spa
-import numbers as num
-
+import numerical as num
 
 def test_bin_encode() -> None:
     dim = 256
