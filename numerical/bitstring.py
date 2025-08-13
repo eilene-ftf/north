@@ -1,10 +1,14 @@
 """Bitstring encoding of numbers, using role-filler pairs."""
 
 import typing
+import sys
 
 import nengo_spa as spa
 import numpy as np
+
 from embeddings import random
+
+__all__ = ["Bitstring", "encode"]
 
 
 class Bitstring(spa.SemanticPointer):
@@ -15,10 +19,12 @@ class Bitstring(spa.SemanticPointer):
     def __init__(
         self,
         data: np.ndarray,
-        vocabulary: spa.Vocabulary,
+        vocab: spa.Vocabulary,
+        width: int,
         name: typing.Optional[str] = None,
     ) -> None:
-        super(Bitstring, self).__init__(data, vocab=vocabulary, name=name)
+        super(Bitstring, self).__init__(data, vocab=vocab, name=name)
+        self.width = width
 
     def badd(self, other: "Bitstring") -> "Bitstring":
         raise NotImplementedError()
@@ -38,11 +44,63 @@ class Bitstring(spa.SemanticPointer):
     def rshift(self, other: "Bitstring") -> "Bitstring":
         raise NotImplementedError()
 
-    def lt(self, other: "Bitstring") -> float:
+    def lt(self, other: "Bitstring") -> "Bitstring":
         raise NotImplementedError()
 
-    def gt(self, other: "Bitstring") -> float:
+    def gt(self, other: "Bitstring") -> "Bitstring":
         raise NotImplementedError()
+
+    def band(self, other: "Bitstring") -> "Bitstring":
+        """Bit-wise binary and between two Bitstrings.
+
+        Args:
+            other Bitstring: the other argument.
+
+        Returns:
+            `self XOR other`.
+        """
+        if not self.check_same_width(other):
+            raise ValueError(
+                f"Expected same width, got lhs {self.width} rhs {other.width}"
+            )
+
+        sbits = self.get_bits()
+        obits = other.get_bits()
+        return bitwise_and(
+            sbits,
+            obits,
+            b_0=self.vocab["BIT_0"],
+            b_1=self.vocab["BIT_1"],
+        )
+
+    def bor(self, other: "Bitstring") -> "Bitstring":
+        raise NotImplementedError()
+
+    def bxor(self, other: "Bitstring") -> "Bitstring":
+        raise NotImplementedError()
+
+    def bnot(self) -> "Bitstring":
+        raise NotImplementedError()
+
+    def check_same_width(self, other: "Bitstring") -> bool:
+        return self.width == other.width
+
+    def get_bits(self) -> list[spa.SemanticPointer]:
+        width = self.width
+        width_markers = []
+        for i in range(width):
+            width_markers.append(self.vocab[f"S_{i}"])
+
+        base_bits = [self.vocab["BIT_0"], self.vocab["BIT_1"]]
+        bits_mat = np.array([ptr.v for ptr in base_bits])
+        bits = []
+        for marker in width_markers:
+            bit = self.bind(~marker)
+            sims = bits_mat @ bit.v
+            max_sim_idx = np.argmax(sims)
+            clean_bit = base_bits[max_sim_idx]
+            bits.append(clean_bit)
+        return bits
 
 
 def encode(
@@ -89,8 +147,23 @@ def encode(
                 name=f"S_{i}",
             )
             vocabulary.add(f"S_{i}", s_i)
+    if "BIT_0" not in vocabulary:
+        bit_0 = spa.SemanticPointer(
+            random(1, vocabulary.dimensions).squeeze(),
+            vocab=vocabulary,
+            name="BIT_0",
+        )
+        vocabulary.add("BIT_0", bit_0)
+    if "BIT_1" not in vocabulary:
+        bit_1 = spa.SemanticPointer(
+            random(1, vocabulary.dimensions).squeeze(),
+            vocab=vocabulary,
+            name="BIT_0",
+        )
+        vocabulary.add("BIT_1", bit_1)
 
-    n_bin = bin(n)
+    n_bin = bin(n).replace("b", "")
+    print(f"{n_bin = }", file=sys.stderr)
     if len(n_bin) < width:
         for _ in range(width - len(n_bin)):
             n_bin = "0" + n_bin
@@ -98,11 +171,23 @@ def encode(
     brep = np.zeros(vocabulary.dimensions)
     for i, b in enumerate(n_bin):
         if b == "0":
-            brep += (vocabulary[f"S_{i}"] * vocabulary["BIT_0"])
+            brep += (vocabulary[f"S_{i}"] * vocabulary["BIT_0"]).v
+        elif i == "b":
+            continue
         else:
-            brep += (vocabulary[f"S_{i}"] * vocabulary["BIT_1"])
-    
+            brep += (vocabulary[f"S_{i}"] * vocabulary["BIT_1"]).v
+
     brep_name = f"BINARY_{n}"
-    sp = spa.SemanticPointer(brep, vocab=vocabulary, name=brep_name)
+    sp = Bitstring(brep, vocab=vocabulary, name=brep_name, width=width)
     vocabulary.add(brep_name, sp)
     return sp
+
+
+def bitwise_and(
+    lhs_bits: list[spa.SemanticPointer],
+    rhs_bits: list[spa.SemanticPointer],
+    b_0: spa.SemanticPointer,
+    b_1: spa.SemanticPointer,
+) -> Bitstring:
+    """Bit-wise"""
+    raise NotImplementedError()
