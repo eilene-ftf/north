@@ -19,6 +19,7 @@ class RingBuffer(spa.Network):
         self._read_head = self.buf_size - 1
         self._write_head = 0
         self._iter_flag = False
+        self._reset_flag = True
         
         assert self.label is not None and self.label.isalnum() and self.label[0].isalpha()
 
@@ -45,6 +46,14 @@ class RingBuffer(spa.Network):
                 stopwatch = 0
                 def write_state_machine(t, x):
                     nonlocal state, stopwatch
+                    
+                    if t < 0.01 and not self._reset_flag:
+                        self._reset()
+                        self._reset_flag = True
+                        print(self)
+                    elif t > 0.01 and self._reset_flag:
+                        self._reset_flag = False
+
                     from_pub = x[:self.dim]
                     pub_sigin = x[-1]
 
@@ -116,6 +125,12 @@ class RingBuffer(spa.Network):
             nengo.Connection(read_controller[-1], self.sub.subscriber.sigout)
             nengo.Connection(read_controller[-2], self.pub.publisher.sigout)
        
+    def _reset(self):
+        self._buffer[:,:] = 0
+        self._read_head = self.buf_size - 1
+        self._write_head = 0
+        self._iter_flag = False
+
     def _generate_pub(self):
         with self.pub:
             publabel = self.label + "_publisher"
