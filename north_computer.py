@@ -244,7 +244,7 @@ class ControlUnit(spa.Network):
                     create_control_node(voc),
                     size_in=2*voc.dimensions + 1, 
                     size_out=2*voc.dimensions + 1, 
-                    label="control_flag")
+                    label="control_check")
 
             self.flag_control = control_check
            
