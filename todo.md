@@ -24,6 +24,12 @@
     - [x] circuit   `DUP        F_DUP       `
     - [ ] circuit   `ROT        F_ROT       `
     - [x] circuit   `DROP       F_DROP      `
+<<<<<<< HEAD
+=======
+    - [ ] circuit   `+          F_ADD       `
+    - [ ] circuit   `-          F_SUB       `
+    - [ ] circuit   `0=         F_ISZERO    `
+>>>>>>> func-condition-merger
     - [ ] circuit   `0<         F_ISNEG     `
     - [ ] circuit   `IF         F_IF        `
     - [ ] circuit   `THEN       F_THEN      `
@@ -33,5 +39,8 @@
 - [x] Create a global busy signal that monitors the execution of a word until done
 - [x] Create a node containing a virtual program table
 - [x] Create a circuit that retrieves a program from the table when it is not in our minimum subset
-- [ ] Add it to the basal ganglia
-- [ ] Modify it to push the current tail to the call stack and put the retrieved program in the tail
+- [x] Add it to the basal ganglia
+- [x] Modify it to push the current tail to the call stack and put the retrieved program in the tail
+    - [x] Then resume the program on the next clock tick
+- [x] Modify call stack behaviour to pop the top value (if any) into the tail if the tail is nil
+    - [x] And dump the return stack
