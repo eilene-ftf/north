@@ -4,7 +4,7 @@ import nengo
 import nengo_spa as spa
 import numpy as np
 
-from .bitstring import *
+from ..bitstring import *
 
 __all__ = ["BXor"]
 

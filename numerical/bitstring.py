@@ -2,8 +2,9 @@
 
 import typing
 import sys
+import functools
 
-import nengo_spa as spa
+import nengo_spa as spa  # type: ignore
 import numpy as np
 
 from embeddings import random
@@ -123,12 +124,7 @@ class Bitstring(spa.SemanticPointer):
     def bnot(self) -> "Bitstring":
         """Bit-wise *negation* of a `Bitstring`."""
         sbits = self.get_bits()
-        return bitwise_not(
-            sbits,
-            vocab=self.vocab,
-            width=self.width,
-            name=self.name
-        )
+        return bitwise_not(sbits, vocab=self.vocab, width=self.width, name=self.name)
 
     def check_same_width(self, other: "Bitstring") -> bool:
         return self.width == other.width
@@ -427,9 +423,7 @@ def bitwise_not(
         else:
             bs.append(vocab["BIT_1"])
     if name is not None:
-        new_name = str(
-            -~int(name.removeprefix("BINARY_"))
-        )
+        new_name = str(-~int(name.removeprefix("BINARY_")))
         return from_list(bs, vocab, width, name=new_name)
     else:
         return from_list(bs, vocab, width)

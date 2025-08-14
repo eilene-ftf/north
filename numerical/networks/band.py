@@ -4,7 +4,7 @@ import nengo
 import nengo_spa as spa
 import numpy as np
 
-from .bitstring import *
+from ..bitstring import *
 
 __all__ = ["BAnd"]
 
@@ -53,7 +53,7 @@ class BAnd(spa.Network):
         self.neurons_per_dimension = neurons_per_dimension
 
         with self:
-            self.binding_net, inputs, output = implement_and(
+            self.band_net, inputs, output = implement_and(
                 self.neurons_per_dimension,
                 self.vocab,
             )
