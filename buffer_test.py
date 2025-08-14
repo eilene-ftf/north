@@ -9,8 +9,10 @@ model = spa.Network()
 with model:
    d = 256
    s = 10
+   vocab = spa.Vocabulary(d)
+   vocab.populate("APPLE; BANANA; CHERRY; DURIAN; ELDERBERRY")
    pub = spa.Network()
    sub = spa.Network()
-   buffer = RingBuffer(buf_size=s, dim=d, pub=pub, sub=sub, label="MyBuffer")
+   buf = RingBuffer(buf_size=s, dim=d, pub=pub, sub=sub, sub_vocab=vocab, label="MyBuffer")
    #buffer2 = RingBuffer(buf_size=s, dim=d, pub=pub, sub=sub, label="MySecondBuffer")
 
