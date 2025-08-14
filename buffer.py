@@ -21,8 +21,8 @@ class RingBuffer(spa.Network):
         self.pub_vocab = pub_vocab
         self.sub_vocab = sub_vocab
 
-        if vocab in kwargs:
-            self.vocab = kwargs[vocab]
+        if vocab:
+            self.vocab = vocab
             if not self.pub_vocab:
                 self.pub_vocab = vocab
             if not self.sub_vocab:
