@@ -5,8 +5,9 @@ import nengo_spa as spa
 # if sub_req is false, sigout should pulse on each put and we should pop at regular intervals
 # if pub_req is false, we should put at regular intervals and pulse sigout whenever something is popped
 class RingBuffer(spa.Network):
-    def __init__(self, buf_size, dim, pub=None, sub=None, writer_start=0, reader_start=-1, pub_req=True, 
-                 sub_req=True, interval=None, t_pulse=0.2, t_delay=0.1, theta=0.3, *args, **kwargs):
+    def __init__(self, buf_size, dim, pub=None, sub=None, writer_start=0, reader_start=-1, 
+                 pub_req=True, sub_req=True, interval=None, t_pulse=0.2, t_delay=0.1, theta=0.3, 
+                 vocab=None, pub_vocab=None, sub_vocab=None, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dim = dim
         self.buf_size = buf_size
@@ -17,6 +18,18 @@ class RingBuffer(spa.Network):
         self._iter_flag = False
         self._reset_flag = True
         
+        self.pub_vocab = pub_vocab
+        self.sub_vocab = sub_vocab
+
+        if vocab in kwargs:
+            self.vocab = kwargs[vocab]
+            if not self.pub_vocab:
+                self.pub_vocab = vocab
+            if not self.sub_vocab:
+                self.sub_vocab = vocab
+        else: 
+            self.vocab = None
+
         assert self.label is not None and self.label.isalnum() and self.label[0].isalpha()
 
         self._pub_req = pub_req
@@ -25,6 +38,7 @@ class RingBuffer(spa.Network):
         self._t_pulse = t_pulse
         self._t_delay = t_delay
         self._theta = theta
+
 
         if not (pub_req and sub_req) and not interval:
             raise ValueError("Must set an interval if either sub requests or pub requests are disabled")
@@ -157,7 +171,10 @@ class RingBuffer(spa.Network):
             setattr(self.pub, publabel, publisher)
 
             with publisher:
-                publisher.register = spa.State(self.dim)
+                if self.pub_vocab:
+                    publisher.register = spa.State(self.pub_vocab, label="publisher.register")
+                else:
+                    publisher.register = spa.State(self.dim, label="publisher.register")
                 publisher.input = nengo.Node(size_in=self.dim)
                 publisher.output = nengo.Node(size_in=self.dim)
                 if self._pub_req:
@@ -177,7 +194,10 @@ class RingBuffer(spa.Network):
             setattr(self.sub, sublabel, subscriber)
 
             with subscriber:
-                subscriber.register = spa.State(self.dim)
+                if self.sub_vocab:
+                    subscriber.register = spa.State(self.sub_vocab, label="subscriber.register")
+                else:
+                    subscriber.register = spa.State(self.dim, label="subscriber.register")
                 subscriber.input = nengo.Node(size_in=self.dim)
                 subscriber.output = nengo.Node(size_in=self.dim)
                 if self._sub_req:
