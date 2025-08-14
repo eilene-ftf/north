@@ -2,26 +2,34 @@ import numpy as np
 import nengo
 import nengo_spa as spa
 
-theta = 0.3
-t_delay = 0.1
-t_pulse = 0.2
-
 # if sub_req is false, sigout should pulse on each put and we should pop at regular intervals
 # if pub_req is false, we should put at regular intervals and pulse sigout whenever something is popped
 class RingBuffer(spa.Network):
-    def __init__(self, buf_size, dim, pub=None, sub=None, pub_req=True, 
-                 sub_req=True, interval=None, *args, **kwargs):
+    def __init__(self, buf_size, dim, pub=None, sub=None, writer_start=0, reader_start=-1, pub_req=True, 
+                 sub_req=True, interval=None, t_pulse=0.2, t_delay=0.1, theta=0.3, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dim = dim
         self.buf_size = buf_size
         self._width = int(np.log10(self.buf_size-1)) + 1
         self._buffer = np.zeros((self.buf_size, dim))
-        self._read_head = self.buf_size - 1
-        self._write_head = 0
+        self._read_head = (self.buf_size + reader_start) % self.buf_size
+        self._write_head = (self.buf_size + writer_start) % self.buf_size
         self._iter_flag = False
         self._reset_flag = True
         
         assert self.label is not None and self.label.isalnum() and self.label[0].isalpha()
+
+        self._pub_req = pub_req
+        self._sub_req = sub_req
+        self._interval = interval
+        self._t_pulse = t_pulse
+        self._t_delay = t_delay
+        self._theta = theta
+
+        if not (pub_req and sub_req) and not interval:
+            raise ValueError("Must set an interval if either sub requests or pub requests are disabled")
+        elif interval and interval < t_delay + t_pulse:
+            raise ValueError(f"Interval must be at least as long as time to complete an operation, {t_delay + t_puls}")
 
         self.pub = pub
         self.sub = sub
@@ -57,18 +65,18 @@ class RingBuffer(spa.Network):
                     from_pub = x[:self.dim]
                     pub_sigin = x[-1]
 
-                    if state == 0 and pub_sigin > theta:
+                    if state == 0 and pub_sigin > self._theta:
                         state = 1
                         self.put(from_pub)
                         stopwatch = t
                         print(self, 'put!')
-                    elif state == 1 and t > stopwatch + t_delay:
+                    elif state == 1 and t > stopwatch + self._t_delay:
                         state = 2
-                    elif state == 2 and t > stopwatch + t_delay + t_pulse:
+                    elif state == 2 and t > stopwatch + self._t_delay + self._t_pulse:
                         state = 0
                         stopwatch = 0
 
-                    return [0, state==2]
+                    return state==2
 
                 return write_state_machine
 
@@ -81,7 +89,7 @@ class RingBuffer(spa.Network):
 
                     sub_sigin = x[-1]
 
-                    if state == 0 and sub_sigin > theta:
+                    if state == 0 and sub_sigin > self._theta:
                         try:
                             to_return[:] = self.pop()
                             state = 1
@@ -90,28 +98,28 @@ class RingBuffer(spa.Network):
                             state = -1
                         stopwatch = t
                         print(self, "popped!")
-                    elif state == 1 and t > stopwatch + t_delay:
+                    elif state == 1 and t > stopwatch + self._t_delay:
                         state = 2
-                    elif state == -1 and t > stopwatch + t_delay:
+                    elif state == -1 and t > stopwatch + self._t_delay:
                         state = -2
-                    elif np.abs(state) == 2 and t > stopwatch + t_delay + t_pulse:
+                    elif np.abs(state) == 2 and t > stopwatch + self._t_delay + self._t_pulse:
                         state = 0
                         stopwatch = 0
                         #to_return[:] = 0
 
-                    return np.concatenate([to_return, [0, state//2]])
+                    return np.concatenate([to_return, [state//2]])
 
                 return read_state_machine
 
 
 
             read_controller = nengo.Node(size_in=1,
-                                         size_out=self.dim+2,
+                                         size_out=self.dim+1,
                                          output=make_read_state_machine(sub_req),
                                          label="read_controller")
 
             write_controller = nengo.Node(size_in=self.dim+1,
-                                         size_out=2,
+                                         size_out=1,
                                          output=make_write_state_machine(pub_req),
                                          label="write_controller")
 
@@ -120,16 +128,23 @@ class RingBuffer(spa.Network):
 
             nengo.Connection(self.pub.publisher.sigin, write_controller[-1])
             nengo.Connection(self.sub.subscriber.sigin, read_controller)
-            nengo.Connection(write_controller[-1], self.pub.publisher.sigout)
-            nengo.Connection(write_controller[-2], self.sub.subscriber.sigout)
-            nengo.Connection(read_controller[-1], self.sub.subscriber.sigout)
-            nengo.Connection(read_controller[-2], self.pub.publisher.sigout)
+            if self._pub_req:
+                nengo.Connection(write_controller[-1], self.pub.publisher.sigout)
+            else:
+                nengo.Connection(read_controller[-1], self.pub.publisher.sigout)
+            if self._sub_req:
+                nengo.Connection(read_controller[-1], self.sub.subscriber.sigout)
+            else:
+                nengo.Connection(write_controller[-1], self.sub.subscriber.sigout)
        
     def _reset(self):
         self._buffer[:,:] = 0
         self._read_head = self.buf_size - 1
         self._write_head = 0
         self._iter_flag = False
+
+    def _poll_node(self, interval):
+        return nengo.Node(size_out=1, output=lambda t: t % interval < self._t_pulse)
 
     def _generate_pub(self):
         with self.pub:
@@ -142,7 +157,10 @@ class RingBuffer(spa.Network):
                 publisher.register = spa.State(self.dim)
                 publisher.input = nengo.Node(size_in=self.dim)
                 publisher.output = nengo.Node(size_in=self.dim)
-                publisher.sigin = nengo.Node(size_in=1)
+                if self._pub_req:
+                    publisher.sigin = nengo.Node(size_in=1)
+                else:
+                    publisher.sigin = self._poll_node(self._interval)
                 publisher.sigout = nengo.Node(size_in=1)
 
                 nengo.Connection(publisher.input, publisher.register.input)
@@ -159,7 +177,10 @@ class RingBuffer(spa.Network):
                 subscriber.register = spa.State(self.dim)
                 subscriber.input = nengo.Node(size_in=self.dim)
                 subscriber.output = nengo.Node(size_in=self.dim)
-                subscriber.sigin = nengo.Node(size_in=1)
+                if self._sub_req:
+                    subscriber.sigin = nengo.Node(size_in=1)
+                else:
+                    subscriber.sigin = self._poll_node(self._interval)
                 subscriber.sigout = nengo.Node(size_in=1)
 
                 nengo.Connection(subscriber.input, subscriber.register.input)
@@ -234,9 +255,9 @@ class RingBuffer(spa.Network):
                     if self._write_head == self._read_head:
                         rep += (f" [{self._write_head:{self._width}d}] writer >>> "  +
                                  '[{}  ...  {}]'.format(
-                                 self._format_array(self._buffer[self._write_head]), 
-                                 self._format_array(self._buffer[self._write_head])) +
-                                 "<<< reader [{self._read_head:{self._width}d}]\n")
+                                     self._format_array(self._buffer[self._write_head][:3]), 
+                                     self._format_array(self._buffer[self._write_head][-3:])) +
+                                 f" <<< reader [{self._read_head:{self._width}d}]\n")
                     else: 
                         writer_line = (f" [{self._write_head:{self._width}d}] writer >>> "  +
                                        '[{}  ...  {}]\n'.format(
