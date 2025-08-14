@@ -7,6 +7,7 @@ from numpy.linalg import norm
 from collections import UserDict
 
 theta = 0.3     # threshold parameter
+stability_threshold = 0.7 # thresholds stability of R_state
 d = 256         # dimensionality
 t_resume = 0.1 # do not make relative
 t_stack = 0.2
@@ -229,7 +230,7 @@ class ControlUnit(spa.Network):
             
             mod_node = nengo.Node(
                 create_modification_node(vocab, circuits=circuits, theta=theta),
-                size_in=2*d+1,
+                size_in=2*d+2,
                 size_out=2*d+1,
                 label="mod_node"
             )
@@ -374,31 +375,33 @@ class ControlUnit(spa.Network):
             nengo.Connection(R_state.output, stable[:self.d])
             nengo.Connection(R_state.output, stable[self.d:], synapse=0.4)
             
-            threshold = 0.95
             threshold_node = nengo.Node(
                 size_in=1,
                 size_out=1,
-                output=lambda t, x: 1 if x < threshold else -1,
-                label="stability_threshold"
+                output=lambda t, x: 1 if x < stability_threshold else -1,
+                label="threshold_node"
             )
             nengo.Connection(stable, threshold_node)
+            nengo.Connection(threshold_node, mod_node[-2])
             
-            def latch_func(t, x):
-                condition = x[0]
-                stable = x[1]
-                if not hasattr(latch_func, 'state'):
-                    latch_func.state = 0
-                if stable < -0.5:
-                    latch_func.state = 0
-                if condition > 0.5:
-                    latch_func.state = 1
-                return [latch_func.state]
+            def make_latch_node():
+                state = 0
+                def latch_func(t, x):
+                    nonlocal state
+                    condition = x[0]
+                    stable = x[1]
+                    if stable < -0.5:
+                        state = 0
+                    if condition > 0.5:
+                        state = 1
+                    return [state]
+                return latch_func
             
             latch_node = nengo.Node(
-                latch_func, 
+                make_latch_node(), 
                 size_in=2, 
                 size_out=1,
-                label="update_latch"
+                label="latch_node"
             )
             nengo.Connection(condition_node, latch_node[0])
             nengo.Connection(threshold_node, latch_node[1])
@@ -406,7 +409,7 @@ class ControlUnit(spa.Network):
             def t_state_gate(t, x):
                 new_t = x[0:self.d]
                 current_t = x[self.d:2*self.d]
-                latch = x[2*self.d]
+                latch = x[-2]
                 pause = x[-1]
                 if latch > 0.5 or pause > theta:
                     return current_t
@@ -417,11 +420,11 @@ class ControlUnit(spa.Network):
                 t_state_gate, 
                 size_in=2*self.d+2, 
                 size_out=self.d,
-                label="tail_register_gate"
+                label="t_gate_node"
             )
-            nengo.Connection(tail_cleanup, t_gate_node[0:self.d])
+            nengo.Connection(tail_cleanup, t_gate_node[:self.d])
             nengo.Connection(T_state.output, t_gate_node[self.d:2*self.d])
-            nengo.Connection(latch_node, t_gate_node[2*self.d])
+            nengo.Connection(latch_node, t_gate_node[-2])
             nengo.Connection(mod_node[-1], t_gate_node[-1])
             
             nengo.Connection(H_state.output, output_state.input)
@@ -492,42 +495,53 @@ class ControlUnit(spa.Network):
                 state = 0
                 stopwatch = 0
                 to_return = np.zeros(d)
+                ctrl_flag = False
                 def function_controller(t, x):
-                    nonlocal state, stopwatch, to_return
+                    nonlocal state, stopwatch, to_return, ctrl_flag
                     from_R_state = x[:d]
                     from_user_func = x[d:d*2]
+                    latch = x[-4] # get rid of this, not necessary
                     clock = x[-3]
                     ctrl_signal = x[-1]
                     stack_done_signal = x[-2]
 
                     pushmag = (from_R_state @ vocab['S_PUSH'].v)
                     if pushmag > theta:
-                        from_R_state -= vocab['S_PUSH'].v 
+                        from_R_state -= vocab['S_PUSH'].v
 
-                    if ctrl_signal < theta and state == 0:
+                    if ctrl_signal > theta and not ctrl_flag:
+                        ctrl_flag = True
+
+                    if not ctrl_flag and state == 0:
                         to_return = from_R_state 
-                    elif ctrl_signal > theta and state == 0 and stack_done_signal < theta:
+                    elif ctrl_flag and state == 0 and latch > theta:
+                        to_return = from_R_state
+                    elif ctrl_flag and state == 0 and latch < theta and stopwatch == 0:
+                        stopwatch = t
+                    elif ctrl_flag and state == 0 and latch < theta and t > stopwatch + 1.5:
                         state = 1 # push state
                         to_return = from_R_state + vocab['S_PUSH'].v 
-                        #print(f"at {t:.2f}: pushing tail, entered state {state}")
+                        print(f"at {t:.2f}: pushing tail, entered state {state}")
                     elif state == 1 and stack_done_signal > theta:
                         stopwatch = t
                         state = 2 # move retrieved function to T_state
                         to_return = from_user_func
-                        #print(f"at {t:.2f}: putting userfunc in tail, entered state {state}")
+                        print(f"at {t:.2f}: putting userfunc in tail, entered state {state}")
                     elif state == 2 and t > stopwatch + t_ctrl:
                         stopwatch = 0
                         state = 3 # done, wait for reset
                         to_return = from_user_func
-                        #print(f"at {t:.2f}: ready to reset, entered state {state}")
+                        print(f"at {t:.2f}: ready to reset, entered state {state}")
                     elif state == 3 and clock > 1-theta and stopwatch == 0:
                         stopwatch = t
-                        #print(f"at {t:.2f}: clock pulse received, starting timer")
+                        print(f"at {t:.2f}: clock pulse received, starting timer")
                     elif state == 3 and stopwatch != 0 and t > stopwatch + t_resume:
                         state = 0 # reset
                         stopwatch = 0
-                        #print(f"at {t:.2f}: reset, entered state {state}")
-                    # need to add reset trigger on resume
+                        ctrl_flag = False
+                        print(f"at {t:.2f}: reset, entered state {state}")
+                    
+                    #print(ctrl_flag, latch < theta)
 
                     return np.concatenate([to_return, [state]])
 
@@ -543,7 +557,7 @@ class ControlUnit(spa.Network):
             self.func_ctrl_sigin = nengo.Node(size_in=1)
             self.call_stack_sigin = nengo.Node(size_in=1)
             self.from_user_func = nengo.Node(size_in=d)
-            self.func_ctrl = nengo.Node(size_in=d*2+3, 
+            self.func_ctrl = nengo.Node(size_in=d*2+4, 
                                         output=make_func_ctrl(vocab=vocab), 
                                         label="func_ctrl")
             #func_ctrl_state = nengo.Node(size_in=1, label="func_ctrl_state")
@@ -555,6 +569,7 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.call_stack_sigin, self.func_ctrl[-2])
             nengo.Connection(self.clock_trigger, func_rtrn[-2])
             nengo.Connection(self.clock_trigger, self.func_ctrl[-3])
+            nengo.Connection(threshold_node, self.func_ctrl[-4])
             nengo.Connection(t_gate_node, func_rtrn[:d], synapse=0.01)
             nengo.Connection(func_rtrn[:d], self.func_ctrl[:d])
             nengo.Connection(self.from_user_func, self.func_ctrl[d:d*2])
@@ -580,6 +595,11 @@ class ControlUnit(spa.Network):
 
             self.to_return_stack = nengo.Node(size_in=d)
             nengo.Connection(func_rtrn[d*2:d*3], self.to_return_stack)
+
+            test_T_flow = spa.State(vocab, label="test")
+            test_T_2 = spa.State(vocab, label="test2")
+            nengo.Connection(tail_cleanup, test_T_flow.input)
+            nengo.Connection(t_gate_node[:d], test_T_2.input)
             
 def make_stack_in(stack, tag='stack'):
     stopwatch = 0
@@ -802,6 +822,7 @@ def create_modification_node(vocab, circuits, theta=0.2):
     def modify_output(t, x):
         output_vec = x[:d]
         user_func_holo = x[d:d*2]
+        R_is_stable = x[-2] < -1 + theta
         resume = x[-1] > 1-theta
         
         norm_output = np.linalg.norm(output_vec)
@@ -816,8 +837,10 @@ def create_modification_node(vocab, circuits, theta=0.2):
         
         if output_vec @ output_vec < theta:
             pass
-        elif is_word:
+        elif is_word and R_is_stable:
             to_dispatcher = output_vec
+        elif is_word:
+            pass
         elif cos_sim > theta:
             to_stack = pop_vec
         else:
