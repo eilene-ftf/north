@@ -1468,7 +1468,6 @@ class RegisterBank(spa.Network):
                 self.bindings[name] = getattr(self, name)
 
 
-<<<<<<< HEAD
 model = spa.Network()
 with model:
     kws = """Keywords: 
