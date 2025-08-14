@@ -33,7 +33,8 @@ class RingBuffer(spa.Network):
 
         self.pub = pub
         self.sub = sub
-
+        
+        #checks if sub and pub are already provided as args, if not generates nodes for that, if yes just proceeds with generating the important pub/sub code
         if not self.pub:
             with self:
                 self.pub = spa.Network("Publisher")
@@ -49,6 +50,7 @@ class RingBuffer(spa.Network):
             self._generate_sub()
 
         with self:
+            # this writes it to the buffer -> ros: read controller
             def make_write_state_machine(pub_req):
                 state = 0
                 stopwatch = 0
@@ -61,7 +63,8 @@ class RingBuffer(spa.Network):
                         print(self)
                     elif t > 0.01 and self._reset_flag:
                         self._reset_flag = False
-
+                    
+                    # 
                     from_pub = x[:self.dim]
                     pub_sigin = x[-1]
 
@@ -79,7 +82,7 @@ class RingBuffer(spa.Network):
                     return state==2
 
                 return write_state_machine
-
+            # this reads from the buffer <- from ros
             def make_read_state_machine(sub_req):
                 state = 0
                 stopwatch = 0
