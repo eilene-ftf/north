@@ -5,15 +5,15 @@ import nengo_spa as spa
 # if sub_req is false, sigout should pulse on each put and we should pop at regular intervals
 # if pub_req is false, we should put at regular intervals and pulse sigout whenever something is popped
 class RingBuffer(spa.Network):
-    def __init__(self, buf_size, dim, pub=None, sub=None, pub_req=True, 
+    def __init__(self, buf_size, dim, pub=None, sub=None, writer_start=0, reader_start=-1, pub_req=True, 
                  sub_req=True, interval=None, t_pulse=0.2, t_delay=0.1, theta=0.3, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.dim = dim
         self.buf_size = buf_size
         self._width = int(np.log10(self.buf_size-1)) + 1
         self._buffer = np.zeros((self.buf_size, dim))
-        self._read_head = self.buf_size - 1
-        self._write_head = 0
+        self._read_head = (self.buf_size + reader_start) % self.buf_size
+        self._write_head = (self.buf_size + writer_start) % self.buf_size
         self._iter_flag = False
         self._reset_flag = True
         
@@ -255,9 +255,9 @@ class RingBuffer(spa.Network):
                     if self._write_head == self._read_head:
                         rep += (f" [{self._write_head:{self._width}d}] writer >>> "  +
                                  '[{}  ...  {}]'.format(
-                                 self._format_array(self._buffer[self._write_head]), 
-                                 self._format_array(self._buffer[self._write_head])) +
-                                 "<<< reader [{self._read_head:{self._width}d}]\n")
+                                     self._format_array(self._buffer[self._write_head][:3]), 
+                                     self._format_array(self._buffer[self._write_head][-3:])) +
+                                 f" <<< reader [{self._read_head:{self._width}d}]\n")
                     else: 
                         writer_line = (f" [{self._write_head:{self._width}d}] writer >>> "  +
                                        '[{}  ...  {}]\n'.format(
