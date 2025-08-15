@@ -1226,7 +1226,10 @@ if __name__ == "__main__":
             embeddings_path = f"./data/fruit_program_dim{d}"
             test_program = load_embeddings(embeddings_path, voc)
         else:
-            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
+            if INTEGER_ENCODING_SCHEME == "list":
+                test_program = embed("1", voc, INTEGER_ENCODING_SCHEME)
+            elif INTEGER_ENCODING_SCHEME == "binary":
+                test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
 
 
         # holo = sum([voc[c].v for c in circuits_dict.keys()])

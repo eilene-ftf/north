@@ -95,7 +95,7 @@ def embed(
     src: str,
     vocab: spa.Vocabulary,
     integer_encoding_scheme: typing.Literal["list", "binary"],
-    width: int,
+    width: int = 8,
 ) -> spa.SemanticPointer:
     """Embed ``src`` into a ``spa.SemanticPointer``.
 
