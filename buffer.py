@@ -186,6 +186,9 @@ class RingBuffer(spa.Network):
                 nengo.Connection(publisher.input, publisher.register.input)
                 nengo.Connection(publisher.register.output, publisher.output)
 
+            if hasattr(self.pub, "deposit_box"):
+                self.pub.deposit_box[publabel] = publisher
+
     def _generate_sub(self):
         with self.sub:
             sublabel = self.label + "_subscriber"
@@ -209,6 +212,8 @@ class RingBuffer(spa.Network):
                 nengo.Connection(subscriber.input, subscriber.register.input)
                 nengo.Connection(subscriber.register.output, subscriber.output)
 
+            if hasattr(self.sub, "deposit_box"):
+                self.sub.deposit_box[publabel] = subscriber
 
     def __iter__(self):
         return self
