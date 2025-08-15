@@ -6,6 +6,9 @@ import numpy as np
 from numpy.linalg import norm
 from collections import UserDict
 
+from graft import load_embeddings, embed
+
+LOAD_EMBEDDINGS_FROM_MEMORY = False
 theta = 0.3     # threshold parameter
 stability_threshold = 0.7 # thresholds stability of R_state
 d = 256         # dimensionality
@@ -106,41 +109,71 @@ def cleanup(u, vocab=voc):
         return vocab[unrolled[np.argmax(dots)][0]]
     return voc['Zero']
 
-def cons(h, t, vocab=voc, assoc_memory=assoc):
+def get_name(v, vocab=voc):
+    closest_sp = voc._keys[np.argmax(voc.dot(v))]
+    return closest_sp
+
+def cons(h, t, vocab=voc, assoc_memory=assoc, numeric=False):
 
     if is_list(t):
         if h.name not in vocab: vocab.add(h.name, h)
+        if vcos(h, vocab['T_NIL']) < 0.2:
+            if f"Pointer_to_{h.name}" not in vocab:
+                newv_h = np.random.normal(size = d, scale=1/np.sqrt(d))
+                newv_h_name = f"Pointer_to_{h.name}"
+                vocab.add(newv_h_name, newv_h)
+                assoc_memory.memorize(vocab[newv_h_name], h)
+                #print(newv)
+            h_name = f"Pointer_to_{h.name}"
+            h_ptr = vocab[h_name]
+        else:
+            h_ptr = h
+            
+        
         if t.name not in vocab: vocab.add(t.name, t)
         if vcos(t, vocab['T_NIL']) < 0.2:
             if f"Pointer_to_{t.name}" not in vocab:
-                newv = np.random.normal(size = d, scale=1/np.sqrt(d))
-                newv_name = f"Pointer_to_{t.name}"
-                vocab.add(newv_name, newv)
-                assoc_memory.memorize(vocab[newv_name], t)
+                newv_t = np.random.normal(size = d, scale=1/np.sqrt(d))
+                newv_t_name = f"Pointer_to_{t.name}"
+                vocab.add(newv_t_name, newv_t)
+                assoc_memory.memorize(vocab[newv_t_name], t)
                 #print(newv)
             t_name = f"Pointer_to_{t.name}"
-            t = vocab[t_name]
+            t_ptr = vocab[t_name]
+        else:
+            t_ptr = t
             
             
             #print(list(assoc_memory.A.reverse.items()))
-        new_sp = vocab['R_LEFT'] * h + vocab['R_RIGHT'] * t + vocab['R_PHI']
-        new_name = f'LS_{h.name}_{t.name.replace("Pointer_to_", "")}'
-        if new_name not in vocab:
-            vocab.add(new_name, spa.SemanticPointer(new_sp.normalized().v, name=new_name))
-        return vocab[new_name]
+        new_sp = vocab['R_LEFT'] * h_ptr + vocab['R_RIGHT'] * t_ptr + vocab['R_PHI']
+        new_name = ''
+        if numeric:
+            old_name = h.name.replace("Pointer_to_", "").replace("NUMBER_", "")
+            if old_name == "T_NIL": old_name = "0"
+            new_name = f'NUMBER_{int(old_name) + 1}'
+        else:
+            new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
+        return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
     return cons(h, cons(t, vocab['T_NIL']), vocab=vocab)
 
 def car(l, vocab=voc):
+    h_ptr = cleanup(~vocab['R_LEFT'] * l, vocab=vocab)
     
-    return cleanup(~vocab['R_LEFT'] * l, vocab=vocab)
+    if h_ptr.name.startswith("Pointer_to_"):
+        sliced_name = h_ptr.name[11:]
+        return vocab[sliced_name]
+    else:
+        return h_ptr
 
 def cdr(l, vocab=voc):
-    p = cleanup(~vocab['R_RIGHT'] * l, vocab=vocab)
-    if p.name == 'T_NIL':
-        return p
-    sliced_name = p.name[11:]
-    #print(sliced_name)
-    return vocab[sliced_name]
+    t_ptr  = cleanup(~vocab['R_RIGHT'] * l, vocab=vocab)
+    if t_ptr.name == 'T_NIL':
+        return t_ptr
+    if t_ptr.name.startswith("Pointer_to_"):
+        sliced_name = t_ptr.name[11:]
+        return vocab[sliced_name]
+    else:
+        return t_ptr
 
 def read(l, vocab=voc):
 
@@ -305,8 +338,8 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.clock_trigger, resume_state[1])
             nengo.Connection(resume_state, mod_node[-1])
             
-            def cleanup_node(t, x, vocab=self.vocab):
-                return cleanup(x, vocab=vocab).v
+            #def cleanup_node(t, x, vocab=self.voc):
+            #    return cleanup(x, vocab=voc).v
             
             def gate_transmission(t,x):
                 return x if t < 1.0 else np.zeros(self.d)
@@ -335,7 +368,13 @@ class ControlUnit(spa.Network):
                 label="tail_dereference"
             )
             
-            head_cleanup = nengo.Node(size_in=d, size_out=d, output=cleanup_node, label="head_cleanup")
+            #head_cleanup = nengo.Node(size_in=d, size_out=d, output=cleanup_node, label="head_cleanup")
+            head_cleanup = nengo.Node(
+                dereference, 
+                size_in=self.d, 
+                size_out=self.d,
+                label="head_dereference"
+            )
             
             nengo.Connection(noisy_h.output, head_cleanup)
             nengo.Connection(head_cleanup, H_state.input)
@@ -1018,7 +1057,7 @@ class AddCircuit(WordCircuit):
                                 a = stack.pop()  # First operand
                                 # Addition: concatenate lists representing numbers (we utilize Peano based encoding, reference add_list_numbers())
                                 # a = (NIL) = 1, b = ((NIL)) = 2, result = (((NIL))) = 3 ; We know this is terrible, its all we had time for (final will use modular encoding)
-                                result = add_list_numbers(a, b, vocab)
+                                result = add_list_numbers(a, b, vocab=vocab)
                                 stack.append(result)
                                 print([p.name for p in stack])
                             stopwatch = t
@@ -1032,6 +1071,7 @@ class AddCircuit(WordCircuit):
                 adder = nengo.Node(size_in=1, output=make_add(self.stack, self.vocab))
                 nengo.Connection(self.input, adder)
                 nengo.Connection(adder, self.output)
+
 
 class SubCircuit(WordCircuit):
     """(a b -- c)
@@ -1380,7 +1420,7 @@ class ThenCircuit(WordCircuit):
                 nengo.Connection(then_processor, self.output)
 
 # Helper functions for list-based arithmetic
-def add_list_numbers(a, b, vocab):
+def add_list_numbers(a, b, vocab=voc):
     """Add two list-encoded numbers"""
     # Count depth of nested lists for a and b because for some reason, we utilize the fucking Peano construction
     depth_a = count_list_depth(a, vocab)
@@ -1389,8 +1429,10 @@ def add_list_numbers(a, b, vocab):
     # Create result with depth = depth_a + depth_b again, because God cursed us with Peano... AAAGHHHHHHHHH
     result = b  # Start with b
     for i in range(depth_a):
-        result = cons(vocab['T_NIL'], result, vocab=vocab)
-    
+        result = cons(result, vocab['T_NIL'], vocab=vocab, numeric=True)
+   
+    if result.name not in vocab:
+        vocab.add(result.name, result)
     return result
 
 def sub_list_numbers(a, b, vocab):
@@ -1403,7 +1445,7 @@ def sub_list_numbers(a, b, vocab):
     
     result = vocab['T_NIL']
     for i in range(result_depth):
-        result = cons(result, vocab['T_NIL'])
+        result = cons(result, vocab['T_NIL'], vocab=vocab, numeric=True)
     
     return result
 
@@ -1598,20 +1640,12 @@ with model:
     #         'O1', 'O2', 'O3']
     #        )
 
-    def new_dummy(name=""):
-        dummy_circuit = spa.Network(f"{name} circuit")
-        with dummy_circuit:
-            dummy_circuit.sigin = nengo.Node(size_in=1, 
-                                            size_out=1, 
-                                            output=lambda _, x: x if x[0] > theta else 0, 
-                                            label="sigin",
-                                            )
-            dummy_circuit.sigout = nengo.Node(size_in=1, label="sigout")
-            dummy_circuit.type = spa.types.TScalar
-            dummy_circuit.input = dummy_circuit.sigin
-            dummy_circuit.output = dummy_circuit.sigout
+        registers = RegisterBank(
+                ['R1', 'R2', 'R3', 'R4', 'R5', 
+                'I1', 'I2', 'I3', 
+                'O1', 'O2', 'O3']
+                )
 
-        return dummy_circuit
     data_stack = SimpleStack(label="data_stack")
     ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
         
@@ -1656,10 +1690,6 @@ with model:
 
     assert ctrl_flow_stack.stack is not call_stack.stack
 
-    # holo = sum([voc[c].v for c in circuits_dict.keys()])
-    # print(np.sqrt(len(circuits_dict.values())), 
-    #       np.linalg.norm(holo),
-    #      [voc[c].v @ holo for c in circuits_dict.keys()])
     
     lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
     listail1 = cons(voc["APPLE"], voc["BANANA"])
@@ -1671,6 +1701,12 @@ with model:
     #print(count_list_depth(result, voc))  # Should print 5
     
     test_program = make_list(["CHERRY", "FRUITSWAP", "CHERRY", "MANGO"], vocab=voc)
+
+    if LOAD_EMBEDDINGS_FROM_MEMORY:
+        embeddings_path = f"./data/fruit_program_dim{d}"
+        test_program = load_embeddings(embeddings_path, voc)
+    else:
+        test_program = embed("APPLE 1 1 + 1 + 1 +", voc)
 
     
     #voc.add(test_program.name, test_program.v)
@@ -1727,3 +1763,39 @@ with model:
 
     test_func_ctrl = spa.State(voc)
     nengo.Connection(control_unit.func_ctrl[:d], test_func_ctrl.input)
+        
+    # voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
+    #             "APPLE", "BANANA", "CHERRY",
+    #             "S_PUSH", "S_POP", "S_DUMP", "S_CODE_ERR_STACKEMPTY", 'S_WORD',
+    #             ] + list(circuits_dict.keys())
+    
+    # @connor: "R_LEFT", "R_RIGHT", "R_PHI", "T_NIL", and other items are
+    # initialized with *the embeddings*. Likewise, for vocab items like
+    # "apple", "banana", etc.
+
+
+    # holo = sum([voc[c].v for c in circuits_dict.keys()])
+    # print(np.sqrt(len(circuits_dict.values())), 
+    #       np.linalg.norm(holo),
+    #      [voc[c].v @ holo for c in circuits_dict.keys()])
+    
+
+    
+    # def make_peano_number(n, vocab):
+    #     num = vocab['T_NIL']
+    #     for _ in range(n):
+    #         num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
+    #     vocab.add(num.name, num)
+    #     return num
+    
+    # num1 = make_peano_number(1, voc)
+    # num2 = make_peano_number(2, voc)
+    # num3 = make_peano_number(3, voc)
+    # num4 = make_peano_number(4, voc)
+    # num5 = make_peano_number(5, voc)
+    # num6 = make_peano_number(6, voc)
+    
+    # test_program = make_list(["APPLE","NUMBER_1","NUMBER_1","F_ADD","NUMBER_1","F_ADD","NUMBER_1","F_ADD"], vocab=voc)
+    
+    # voc.add(test_program.name, test_program.v)
+    
