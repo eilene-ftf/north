@@ -10,6 +10,7 @@ theta = 0.3     # threshold parameter
 stability_threshold = 0.7 # thresholds stability of R_state
 d = 256         # dimensionality
 t_resume = 0.1 # do not make relative
+t_delay = 0.5 # delay for func_ctrl to wait before populating tail
 t_stack = 0.2
 t_buffer = 0.25 # extra time padding so the function controller doesn't race the function return
 t_ctrl = 0.25
@@ -516,9 +517,9 @@ class ControlUnit(spa.Network):
                         to_return = from_R_state 
                     elif ctrl_flag and state == 0 and latch > theta:
                         to_return = from_R_state
-                    elif ctrl_flag and state == 0 and latch < theta and stopwatch == 0:
-                        stopwatch = t
-                    elif ctrl_flag and state == 0 and latch < theta and t > stopwatch + 1.5:
+                    elif ctrl_flag and state == 0 and latch < theta: #and stopwatch == 0:
+                        #stopwatch = t
+                    #elif ctrl_flag and state == 0 and latch < theta and t > stopwatch + t_delay:
                         state = 1 # push state
                         to_return = from_R_state + vocab['S_PUSH'].v 
                         print(f"at {t:.2f}: pushing tail, entered state {state}")
@@ -818,8 +819,11 @@ def create_modification_node(vocab, circuits, theta=0.2):
     pop_vec = vocab["S_POP"].v
     push_vec = vocab["S_PUSH"].v
     circ_holo = sum(vocab[k].v for k in circuits.keys())
+    R_flag = False
+    stopwatch = 0
 
     def modify_output(t, x):
+        nonlocal R_flag, stopwatch
         output_vec = x[:d]
         user_func_holo = x[d:d*2]
         R_is_stable = x[-2] < -1 + theta
@@ -834,10 +838,17 @@ def create_modification_node(vocab, circuits, theta=0.2):
         is_word = (output_vec @ (circ_holo + user_func_holo)) > theta
         to_stack = vocab['Zero'].v
         to_dispatcher = vocab['Zero'].v
+
+        if resume and R_flag:
+            R_flag = False
+            stopwatch = 0
         
         if output_vec @ output_vec < theta:
             pass
-        elif is_word and R_is_stable:
+        elif is_word and R_is_stable and stopwatch == 0:
+            stopwatch = t
+        elif is_word and R_is_stable and t > stopwatch + t_delay:
+            R_flag = True
             to_dispatcher = output_vec
         elif is_word:
             pass
@@ -849,7 +860,7 @@ def create_modification_node(vocab, circuits, theta=0.2):
             if norm_combined > 1e-6:
                 combined /= norm_combined
             to_stack = combined
-        return np.concatenate((to_stack, to_dispatcher, [is_word and not resume]))
+        return np.concatenate((to_stack, to_dispatcher, [is_word and not resume and R_flag]))
     
     return modify_output
 
@@ -1707,3 +1718,12 @@ with model:
     nengo.Connection(control_unit.call_stack_sigout, return_stack.sigin)
 #    function_decoder = spa.State(voc)
 #    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)
+
+    test_call_stack_out = spa.State(voc)
+    nengo.Connection(call_stack.output, test_call_stack_out.input)
+
+    test_call_stack_in = spa.State(voc)
+    nengo.Connection(call_stack.input, test_call_stack_in.input)
+
+    test_func_ctrl = spa.State(voc)
+    nengo.Connection(control_unit.func_ctrl[:d], test_func_ctrl.input)
