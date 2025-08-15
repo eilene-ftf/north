@@ -241,3 +241,14 @@ def test_from_list_bits() -> None:
 
     for enc_bit, man_bit in zip(enc_bits, man_bits):
         assert enc_bit.compare(man_bit) > theta
+
+
+def test_decode() -> None:
+    dim = 256
+    vocab_keys = ["S_0", "S_1", "S_2", "S_3", "S_4", "S_5", "S_6", "S_7"]
+    vocab = spa.Vocabulary(dim)
+    vocab.populate(";".join(vocab_keys))
+
+    for i in range(256):
+        b_i = num.encode(i, vocab)
+        assert b_i.decode() == i

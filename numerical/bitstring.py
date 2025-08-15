@@ -146,6 +146,20 @@ class Bitstring(spa.SemanticPointer):
             bits.append(clean_bit)
         return bits
 
+    def decode(self) -> int:
+        """Decode a ``Bitstring`` to an int."""
+        bits = self.get_bits()
+        base_bits = [self.vocab["BIT_0"], self.vocab["BIT_1"]]
+        bits_mat = np.array([ptr.v for ptr in base_bits])
+        decoded_bits = []
+        for bit in bits:
+            sims = bits_mat @ bit.v
+            max_sim_idx = np.argmax(sims)
+            decoded_bits.append(str(max_sim_idx))
+        decoded_str = "".join(decoded_bits)
+        decoded_str = "0b" + decoded_str
+        return int(decoded_str, base=2)
+
 
 def encode(
     n: int,
@@ -207,11 +221,11 @@ def encode(
         )
         vocabulary.add("BIT_1", bit_1)
 
-    n_bin = bin(n).replace("b", "")
-    print(f"{n_bin = }", file=sys.stderr)
+    n_bin = bin(n).removeprefix("0b")
     if len(n_bin) < width:
         for _ in range(width - len(n_bin)):
             n_bin = "0" + n_bin
+    print(n_bin)
 
     brep = np.zeros(vocabulary.dimensions)
     for i, b in enumerate(n_bin):
