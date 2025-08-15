@@ -5,6 +5,7 @@ from nengo_spa.connectors import RoutedConnection
 import numpy as np
 from numpy.linalg import norm
 from collections import UserDict
+from buffer import RingBuffer
 
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
@@ -213,7 +214,7 @@ class ControlUnit(spa.Network):
         self.vector_numbers = items.v
             
         with self:
-            # Labeled states
+            # Labeled state
             R_state = spa.State(self.vocab, label="R_register")
             H_state = spa.State(self.vocab, label="head_register")
             T_state = spa.State(self.vocab, label="tail_register")
@@ -726,7 +727,7 @@ class Dispatcher(spa.Network):
 
             switch = spa.ActionSelection()
             with switch:
-                spa.ifmax(theta, RoutedConnection(go, wait))
+                spa.ifmax(theta, RoutedConnection(go, wait)) #what is this doing?????
                 for keyword, circuit in circuits.circuits_dict.items():
                     spa.ifmax(
                             in_reg @ vocab[keyword],
@@ -1129,7 +1130,7 @@ class PutCircuit(WordCircuit):
 
         if isinstance(stack, list):
             with self:
-                def make_put(stack, registers, vocab):
+                def make_put(stack, memory_registers, vocab):
                     state = 0
                     stopwatch = 0
                     def put(t, x):
@@ -1518,18 +1519,99 @@ class UserFuncCircuit(WordCircuit):
             nengo.Connection(program_table[-2], self.ctrl_sigout)
             nengo.Connection(program_table[-1], self.output)
 
+class RegisterGate(spa.Network):
+    def __init__(self, registers, stack, label="Register Gate", vocab=voc, *args, **kwargs):
+        super().__init__(label=label)
+        self.addresses = registers.bindings
+        self.input = SemanticNode(size_in = 2*d + 1)
+        self.sigout = nengo.Node(label="sigout")
+
+        # route value, signal in please read value, and route sigout back to put network(straight to output of put network) -> change some stuff to semantic pointers 
+        #will need to create bank before gate 
+        with self:
+            address = spa.State(vocab, label="address")
+            value = spa.State(vocab, label ="value")
+            command = spa.State(1, subdimensions=1, label = "command")
+
+            nengo.Connection(self.input[:d], address.input)
+            #nengo.Connection(stack.output, value.input)
+            nengo.Connection(self.input[d:d*2], value.input)
+            nengo.Connection(self.input[-1], command.input)
+
+            self.to_stack = spa.State(vocab, label="to_stack")
+            
+            # 1 = put, -1 = peep
+            one = spa.SemanticPointer([1], name="one")
+
+            go = SemanticNode([1], label="GO!")
+            wait = SemanticNode(size_in=1, label="wait")
+            #sig_out = [0] #send sigout back to calling func_circ
+
+            switch_put = spa.ActionSelection()
+            #switch_peep = spa.ActionSelection()
+            with switch_put:
+                spa.ifmax(theta, RoutedConnection(go, wait))
+                for reg_name in self.addresses:
+                    print(self.addresses[reg_name])
+                    spa.ifmax(
+                            address @ vocab[reg_name] and command @ one,
+                            value >> self.addresses[reg_name].register.cell
+                            #RoutedConnection(value.output, self.addresses[reg_name].register.input) 
+                            #and RoutedConnection(command, reg.sigin, )
+                            )
+                for reg_name in self.addresses:
+                    spa.ifmax(
+                            address @ vocab[reg_name],
+                            self.addresses[reg_name].register.cell >> self.to_stack
+                            #RoutedConnection(self.addresses[reg_name].register.cell, stack.input) 
+                            #and RoutedConnection(command, reg.sigout)
+                            )
+        nengo.Connection(self.to_stack.output, stack.input)
+        #nengo.Connection(command.output, self.sigout)
+class Cacheier(spa.Network):
+    def __init__(self, name, vocab=voc, *args, **kwargs):
+        self.name = name
+        self.vocab = vocab
+        super().__init__(*args, **kwargs)
+        with self:
+            reglabel = self.name + "_Register"
+            self.register = spa.Network(label=reglabel)
+            register = self.register
+
+            with register:
+                if self.vocab:
+                    register.cell = spa.State(self.vocab, label="register.cell")
+                else:
+                    register.cell = spa.State(size_in = d, label="register.cell")
+                self.register.input = nengo.Node(size_in=d)
+                self.register.output = nengo.Node(size_in=d)
+                register.sigin = nengo.Node(size_in=1)
+                register.sigout = nengo.Node(size_in=1)
+
+                nengo.Connection(register.input, register.cell.input)
+                nengo.Connection(register.cell.output, register.output)
+            
+
+
+
 class RegisterBank(spa.Network):
     def __init__(self, names, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
         
         self.bindings = {}
-
         with self:
             for name in names:
-                setattr(self, name, spa.State(vocab))
-                self.bindings[name] = getattr(self, name)
-
-
+                # want to take existing R_bank and add publisher/subscriber in a way that word circuits can interact with it 
+                # before put and peep are declared 
+                #make them spa.Network's with sigin to sigout
+                #connect signin to out with synapse 
+                #did it so that no fancy logic in registers -> all handled by gate
+                #vocab.populate(";".join(name))
+                self.bindings[name] = Cacheier(name)
+                setattr(self, name, self.bindings[name])
+        print ([value.register.input for value in self.bindings.values()])
+        #print (self.bindings)
+    
 model = spa.Network()
 with model:
     kws = """Keywords: 
@@ -1551,18 +1633,15 @@ with model:
     voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
                  "S_PUSH", "S_POP", "S_PEEK", "S_DUMP", 
                  "S_CODE_ERR_STACKEMPTY", 'S_CODE_HALT', 
-                 "S_ORIG_2", "S_ORIG_1",
+                 "S_ORIG_2", "S_ORIG_1", "S_PEEP", "S_PUT",
                  "TRUE", "FALSE"
                  ] 
     voc.populate("; ".join(voc_items))
 
     # Need to add ROT command too, but will talk later about that, if we are doing return stack operations.
-    
-    #registers = RegisterBank(
-    #        ['R1', 'R2', 'R3', 'R4', 'R5', 
-    #         'I1', 'I2', 'I3', 
-    #         'O1', 'O2', 'O3']
-    #        )
+    register_labels =  ["R_1", "R_2", "R_3", "R_4", "R_5", "I_1", "I_2", "I_3", "O_1", "O_2", "O_3"]
+    voc.populate("; ".join(register_labels))
+    registers = RegisterBank(register_labels)
 
     def new_dummy(name=""):
         dummy_circuit = spa.Network(f"{name} circuit")
@@ -1580,6 +1659,8 @@ with model:
         return dummy_circuit
     data_stack = SimpleStack(label="data_stack")
     ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
+
+    register_gate = RegisterGate(registers, data_stack)
         
     wds_circuits = spa.Network("Words Circuits")
     with wds_circuits:
@@ -1590,8 +1671,8 @@ with model:
             #"F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit"),
             #"F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit"),
             #"F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit"),
-            #"F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
-            #"F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
+            "F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
+            "F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
             #"F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
             #"F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
             "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
