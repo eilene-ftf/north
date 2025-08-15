@@ -16,6 +16,19 @@ AND_MAPPING = {
 }
 
 
+XOR_MAPPING = {
+    "BIT_1 * BIT_1": "BIT_0",
+    "BIT_1 * BIT_0": "BIT_1",
+    "BIT_0 * BIT_0": "BIT_1",
+}
+
+OR_MAPPING = {
+    "BIT_1 * BIT_1": "BIT_1",
+    "BIT_1 * BIT_0": "BIT_1",
+    "BIT_0 * BIT_0": "BIT_1",
+}
+
+
 class BAnd(spa.Network):
     """Spiking implementation of bit-wise AND, mirroring the functionality of
     of `.bitstring.band`.
@@ -84,13 +97,6 @@ class BAnd(spa.Network):
 
             bits = []
             for w in range(width):
-                # lbit = nengo.Ensemble(
-                #     self.neurons_per_dimension, self.vocab.dimensions, label="lbit", seed=self.seed,
-                # )
-                # rbit = nengo.Ensemble(
-                #     self.neurons_per_dimension, self.vocab.dimensions, label="rbit", seed=self.seed,
-                # )
-
                 marker = f"S_{w}"
                 cconvl = spa.modules.Bind(
                     vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
@@ -149,12 +155,6 @@ class BAnd(spa.Network):
         self.declare_output(self.output, self.vocab)
 
 
-def implement_xor(
-    neurons_per_dimension: int, vocab: spa.Vocabulary
-) -> tuple[nengo.Network, tuple[nengo.Node, nengo.Node], nengo.Node]:
-    raise NotImplementedError()
-
-
 class BXor(spa.Network):
     """Spiking implementation of bit-wise XOR, mirroring the functionality of
     of `.bitstring.bxor`.
@@ -194,13 +194,62 @@ class BXor(spa.Network):
         self.neurons_per_dimension = neurons_per_dimension
 
         with self:
-            self.binding_net, inputs, output = implement_xor(
-                self.neurons_per_dimension,
-                self.vocab,
-            )
+            input_left = nengo.Node(size_in=self.vocab.dimensions, label="input_left")
+            input_right = nengo.Node(size_in=self.vocab.dimensions, label="input_right")
 
-        self.input_left = inputs[0]
-        self.input_right = inputs[1]
+            bits = []
+            for w in range(width):
+                marker = f"S_{w}"
+                cconvl = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                cconvr = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                nengo.Connection(input_left, cconvl.input_left)
+                (~self.vocab[marker]).connect_to(cconvl.input_right)
+
+                nengo.Connection(input_right, cconvr.input_left)
+                (~self.vocab[marker]).connect_to(cconvr.input_right)
+
+                lbit = cconvl.output
+                rbit = cconvr.output
+                bits.append((lbit, rbit))
+
+            flips = []
+            for i, (lbit, rbit) in enumerate(bits):
+                assoc = spa.WTAAssocMem(
+                    threshold=0.2,
+                    input_vocab=self.vocab,
+                    output_vocab=self.vocab,
+                    mapping=XOR_MAPPING,
+                    seed=self.seed,
+                )
+                cconvflip = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                nengo.Connection(lbit, cconvflip.input_left)
+                nengo.Connection(rbit, cconvflip.input_right)
+                nengo.Connection(cconvflip.output, assoc.input)
+
+                marker = f"S_{i}"
+                flip = spa.State(vocab=self.vocab)
+                assoc.output * self.vocab[marker] >> flip
+                flips.append(flip)
+
+            superposition = spa.Superposition(
+                n_inputs=len(flips),
+                vocab=self.vocab,
+                neurons_per_dimension=self.neurons_per_dimension,
+                seed=self.seed,
+            )
+            for i, f in enumerate(flips):
+                f >> superposition.inputs[i]
+
+            output = superposition.output
+
+        self.input_left = input_left
+        self.input_right = input_right
         self.output = output
 
         self.declare_input(self.input_left, self.vocab)
@@ -253,13 +302,62 @@ class BOr(spa.Network):
         self.neurons_per_dimension = neurons_per_dimension
 
         with self:
-            self.binding_net, inputs, output = implement_or(
-                self.neurons_per_dimension,
-                self.vocab,
-            )
+            input_left = nengo.Node(size_in=self.vocab.dimensions, label="input_left")
+            input_right = nengo.Node(size_in=self.vocab.dimensions, label="input_right")
 
-        self.input_left = inputs[0]
-        self.input_right = inputs[1]
+            bits = []
+            for w in range(width):
+                marker = f"S_{w}"
+                cconvl = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                cconvr = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                nengo.Connection(input_left, cconvl.input_left)
+                (~self.vocab[marker]).connect_to(cconvl.input_right)
+
+                nengo.Connection(input_right, cconvr.input_left)
+                (~self.vocab[marker]).connect_to(cconvr.input_right)
+
+                lbit = cconvl.output
+                rbit = cconvr.output
+                bits.append((lbit, rbit))
+
+            flips = []
+            for i, (lbit, rbit) in enumerate(bits):
+                assoc = spa.WTAAssocMem(
+                    threshold=0.2,
+                    input_vocab=self.vocab,
+                    output_vocab=self.vocab,
+                    mapping=XOR_MAPPING,
+                    seed=self.seed,
+                )
+                cconvflip = spa.modules.Bind(
+                    vocab=self.vocab, neurons_per_dimension=self.neurons_per_dimension
+                )
+                nengo.Connection(lbit, cconvflip.input_left)
+                nengo.Connection(rbit, cconvflip.input_right)
+                nengo.Connection(cconvflip.output, assoc.input)
+
+                marker = f"S_{i}"
+                flip = spa.State(vocab=self.vocab)
+                assoc.output * self.vocab[marker] >> flip
+                flips.append(flip)
+
+            superposition = spa.Superposition(
+                n_inputs=len(flips),
+                vocab=self.vocab,
+                neurons_per_dimension=self.neurons_per_dimension,
+                seed=self.seed,
+            )
+            for i, f in enumerate(flips):
+                f >> superposition.inputs[i]
+
+            output = superposition.output
+
+        self.input_left = input_left
+        self.input_right = input_right
         self.output = output
 
         self.declare_input(self.input_left, self.vocab)
