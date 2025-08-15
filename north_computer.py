@@ -145,9 +145,7 @@ def cons(h, t, vocab=voc, assoc_memory=assoc, numeric=False):
         else:
             t_ptr = t
             
-            
             #print(list(assoc_memory.A.reverse.items()))
-        new_sp = vocab['R_LEFT'] * h_ptr + vocab['R_RIGHT'] * t_ptr + vocab['R_PHI']
         new_name = ''
         if numeric:
             old_name = h.name.replace("Pointer_to_", "").replace("NUMBER_", "")
@@ -160,7 +158,11 @@ def cons(h, t, vocab=voc, assoc_memory=assoc, numeric=False):
             new_name = f'NUMBER_{old_val + 1}'
         else:
             new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
-        return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
+
+        if new_name not in vocab: 
+            new_sp = vocab['R_LEFT'] * h_ptr + vocab['R_RIGHT'] * t_ptr + vocab['R_PHI']
+            vocab.add(new_name, new_sp.normalized())
+        return vocab[new_name]
     return cons(h, cons(t, vocab['T_NIL']), vocab=vocab)
 
 def car(l, vocab=voc):
@@ -243,8 +245,8 @@ def dereference(t, x):
     return cleanup(spa.SemanticPointer(x), vocab=voc).v            
             
 class ControlUnit(spa.Network):
-    def __init__(self, circuits, d=d, theta=theta, items=None, label="ControlUnit", vocab=spa.Vocabulary(d), assoc_memory=assoc):
-        super().__init__(label=label)
+    def __init__(self, circuits, d=d, theta=theta, items=None, label="ControlUnit", vocab=spa.Vocabulary(d), assoc_memory=assoc, *args, **kwargs):
+        super().__init__(label=label, *args, **kwargs)
         self.d = d
         self.theta = theta
         self.vocab = vocab
@@ -256,17 +258,17 @@ class ControlUnit(spa.Network):
             
         with self:
             # Labeled states
-            R_state = spa.State(self.vocab, label="R_register")
-            H_state = spa.State(self.vocab, label="head_register")
-            T_state = spa.State(self.vocab, label="tail_register")
-            output_state = spa.State(self.vocab, label="output_register")
+            R_state = spa.State(self.vocab, label="R_register", seed=0)
+            H_state = spa.State(self.vocab, label="head_register", seed=0)
+            T_state = spa.State(self.vocab, label="tail_register", seed=0)
+            output_state = spa.State(self.vocab, label="output_register", seed=0)
             
             self.clock_trigger = nengo.Node(
                 lambda t: 1.0 if (t % clock_tick) < 0.1 else 0.0, 
                 label="clock_trigger"
             )
             
-            edge_detector = RisingEdgeDetector(tau=0.04, bias=0, label="edge_detector")
+            edge_detector = RisingEdgeDetector(tau=0.04, bias=0, label="edge_detector", seed=0)
             nengo.Connection(self.clock_trigger, edge_detector.input)
             
             mod_node = nengo.Node(
@@ -334,7 +336,7 @@ class ControlUnit(spa.Network):
             # May need to be changed, seems like it might behave weirdly if 
             # there are multiple words in a row or processing a word takes a 
             # long time
-            resume = FallingEdgeDetector(bias=0, label="resume")
+            resume = FallingEdgeDetector(bias=0, label="resume", seed=0)
             resume_state = nengo.Node(size_in=2,
                                       size_out=1,
                                       output=make_resume_state(),
@@ -362,8 +364,8 @@ class ControlUnit(spa.Network):
             nengo.Connection(self.input_node, transmission_gate)
             nengo.Connection(transmission_gate, R_state.input)
 
-            noisy_h = spa.State(self.vocab, label="noisy_head")
-            noisy_t = spa.State(self.vocab, label="noisy_tail")
+            noisy_h = spa.State(self.vocab, label="noisy_head", seed=0)
+            noisy_t = spa.State(self.vocab, label="noisy_tail", seed=0)
             
             (~self.vocab['R_LEFT'] * R_state) >> noisy_h
             (~self.vocab['R_RIGHT'] * R_state) >> noisy_t
@@ -643,8 +645,8 @@ class ControlUnit(spa.Network):
             self.to_return_stack = nengo.Node(size_in=d)
             nengo.Connection(func_rtrn[d*2:d*3], self.to_return_stack)
 
-            test_T_flow = spa.State(vocab, label="test")
-            test_T_2 = spa.State(vocab, label="test2")
+            test_T_flow = spa.State(vocab, label="test", seed=0)
+            test_T_2 = spa.State(vocab, label="test2", seed=0)
             nengo.Connection(tail_cleanup, test_T_flow.input)
             nengo.Connection(t_gate_node[:d], test_T_2.input)
             
@@ -717,8 +719,8 @@ def make_stack_out(stack):
 
 
 class SimpleStack(spa.Network):
-    def __init__(self, stack=None, d=d, label="stack memory"):
-        super().__init__(label=label)
+    def __init__(self, stack=None, d=d, label="stack memory", *args, **kwargs):
+        super().__init__(label=label, *args, **kwargs)
         self.d = d
         if stack is not None:
             self.stack = stack
@@ -756,8 +758,8 @@ class SemanticNode(nengo.Node):
         return nengo.Connection(self, other, **kwargs)
 
 class Dispatcher(spa.Network):
-    def __init__(self, circuits, busy_node, label="dispatcher", vocab=voc):
-        super().__init__(label=label)
+    def __init__(self, circuits, busy_node, label="dispatcher", vocab=voc, *args, **kwargs):
+        super().__init__(label=label, *args, **kwargs)
         
         self.circuits_dict = circuits.circuits_dict
         d = vocab.dimensions
@@ -765,11 +767,11 @@ class Dispatcher(spa.Network):
         with self:
             self.input = SemanticNode(size_in=d)
        
-            in_reg = spa.State(vocab, label="in_reg")
+            in_reg = spa.State(vocab, label="in_reg", seed=0)
             nengo.Connection(self.input, in_reg.input)
 
             self.holo_node = nengo.Node(size_in=d, label="holo node")
-            holo_reg = spa.State(vocab, label="holo_reg")
+            holo_reg = spa.State(vocab, label="holo_reg", seed=0)
             nengo.Connection(self.holo_node, holo_reg.input)
 
             holodot = SemanticNode(
@@ -781,7 +783,7 @@ class Dispatcher(spa.Network):
             nengo.Connection(self.holo_node, holodot[:d])
             nengo.Connection(self.input, holodot[d:])
 
-            hdot_ptr = spa.State(1, subdimensions=1)
+            hdot_ptr = spa.State(1, subdimensions=1, seed=0)
             nengo.Connection(holodot, hdot_ptr.input)
             one = spa.SemanticPointer([1], name="one")
 
@@ -1616,11 +1618,11 @@ class RegisterBank(spa.Network):
 
         with self:
             for name in names:
-                setattr(self, name, spa.State(vocab))
+                setattr(self, name, spa.State(vocab, seed=0))
                 self.bindings[name] = getattr(self, name)
 
 
-model = spa.Network()
+model = spa.Network(seed=0)
 with model:
     kws = """Keywords: 
         :           F_FUNC
@@ -1654,49 +1656,49 @@ with model:
     #         'O1', 'O2', 'O3']
     #        )
 
-    if LOAD_EMBEDDINGS_FROM_MEMORY:
-        embeddings_path = f"./data/fruit_program_dim{d}"
-        test_program = load_embeddings(embeddings_path, voc)
-    else:
-        if INTEGER_ENCODING_SCHEME == "list":
-            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME)
-        elif INTEGER_ENCODING_SCHEME == "binary":
-            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
+    #   if LOAD_EMBEDDINGS_FROM_MEMORY:
+    #       embeddings_path = f"./data/fruit_program_dim{d}"
+    #       test_program = load_embeddings(embeddings_path, voc)
+    #   else:
+    #       if INTEGER_ENCODING_SCHEME == "list":
+    #           test_program = embed("1", voc, INTEGER_ENCODING_SCHEME)
+    #       elif INTEGER_ENCODING_SCHEME == "binary":
+    #           test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
 
     registers = RegisterBank(
             ['R1', 'R2', 'R3', 'R4', 'R5', 
             'I1', 'I2', 'I3', 
-            'O1', 'O2', 'O3']
-            )
+            'O1', 'O2', 'O3'],
+            seed=0)
 
-    data_stack = SimpleStack(label="data_stack")
-    ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
+    data_stack = SimpleStack(label="data_stack", seed=0)
+    ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack", seed=0)
         
-    wds_circuits = spa.Network("Words Circuits")
+    wds_circuits = spa.Network("Words Circuits", seed=0)
     with wds_circuits:
         wds_circuits.circuits_dict = {
-            "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit"),
-            "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit"), 
-            "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit"),
-            #"F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit"),
-            #"F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit"),
-            #"F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit"),
-            #"F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit"),
-            #"F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit"),
-            #"F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit"),  # Need compilation state
-            #"F_END":     EndCircuit([], [], vocab=voc, label="; Circuit"),   # Need compilation state  
-            "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit"),
-            "F_ELSE":       ElseCircuit(ctrl_flow_stack.stack, vocab=voc, label="ELSE Circuit"),
-            "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
+            "F_DUP":     DupCircuit(data_stack.stack, vocab=voc, label="DUP Circuit", seed=0),
+            "F_DROP":    DropCircuit(data_stack.stack, vocab=voc, label="DROP Circuit", seed=0), 
+            "F_SWAP":    SwapCircuit(data_stack.stack, vocab=voc, label="SWAP Circuit", seed=0),
+            #"F_ADD":     AddCircuit(data_stack.stack, vocab=voc, label="ADD Circuit", seed=0),
+            #"F_SUB":     SubCircuit(data_stack.stack, vocab=voc, label="SUB Circuit", seed=0),
+            #"F_ISZERO":  IsZeroCircuit(data_stack.stack, vocab=voc, label="0= Circuit", seed=0),
+            #"F_PEEP":    PeepCircuit(data_stack.stack, registers, vocab=voc, label="@ Circuit", seed=0),
+            #"F_PUT":     PutCircuit(data_stack.stack, registers, vocab=voc, label="! Circuit", seed=0),
+            #"F_FUNC":    FuncCircuit([], [], vocab=voc, label=": Circuit", seed=0),  # Need compilation state
+            #"F_END":     EndCircuit([], [], vocab=voc, label="; Circuit", seed=0),   # Need compilation state  
+            "F_IF":      IfCircuit(data_stack.stack, ctrl_flow_stack.stack, vocab=voc, label="IF Circuit", seed=0),
+            "F_ELSE":       ElseCircuit(ctrl_flow_stack.stack, vocab=voc, label="ELSE Circuit", seed=0),
+            "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit", seed=0),
         }
 
-        voc.populate('; '.join([k for k in wds_circuits.circuits_dict.keys() if k not in voc]))
+        voc.populate('; '.join(filter(lambda k: k not in voc, wds_circuits.circuits_dict.keys()))) 
         
         fruits = ['APPLE', 'BANANA', 'CHERRY', 'DURIAN', 'ELDERBERRY', 'FIG', 'GUAVA', 'HYUGANATSU', 
                   'IMBE', 'JACKFRUIT', 'KUMQUAT', 'LYCHEE', 'MANGO', 'NECTARINE', 'ORANGE', 'PINEAPPLE', 
                   'QUINCE', 'RASPBERRY', 'SASKATOON', 'TANGERINE', 'UNNAB', 'VOAVANGA', 'WATERMELON', 
                   'XOCONOSTLE', 'YUZU', 'ZWETSCHGE']
-        voc.populate('; '.join(fruits))
+        voc.populate('; '.join(filter(lambda f: f not in voc, fruits)))
 
         table = {'FRUITSWAP': ['LYCHEE', 'MANGO', 'F_SWAP'],
                  'FRUITREADY': ['TRUE', 'F_IF', 'FRUITSWAP', 'F_ELSE', 'LYCHEE', 'F_THEN', 'BANANA']
@@ -1708,19 +1710,19 @@ with model:
         print(wds_circuits.user_func_circuit.table)
         print([v.name for v in wds_circuits.user_func_circuit.bindings.values()])
 
-    call_stack = SimpleStack(label="call_stack")
-    return_stack = SimpleStack(label="return_stack")
+    call_stack = SimpleStack(label="call_stack", seed=0)
+    return_stack = SimpleStack(label="return_stack", seed=0)
 
     assert ctrl_flow_stack.stack is not call_stack.stack
 
     
-    lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
-    listail1 = cons(voc["APPLE"], voc["BANANA"])
-    listail2 = cons(voc["BANANA"],voc["T_NIL"])
-    
-    two = cons(voc['T_NIL'], cons(voc['T_NIL'], voc['T_NIL']))
-    three = cons(voc['T_NIL'], two)  # Using existing list
-    result = add_list_numbers(two, three, voc)
+    #   lis = cons(voc['CHERRY'], cons(voc["APPLE"], voc["BANANA"]))
+    #   listail1 = cons(voc["APPLE"], voc["BANANA"])
+    #   listail2 = cons(voc["BANANA"],voc["T_NIL"])
+    #   
+    #   two = cons(voc['T_NIL'], cons(voc['T_NIL'], voc['T_NIL']))
+    #   three = cons(voc['T_NIL'], two)  # Using existing list
+    #   result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
     test_program = make_list(["CHERRY", "FRUITSWAP", "CHERRY", "MANGO"], vocab=voc)
@@ -1728,16 +1730,16 @@ with model:
     
     #voc.add(test_program.name, test_program.v)
     
-    inp = spa.State(voc)
-    out = spa.State(voc)
-    c_inp = spa.State(voc)
+    inp = spa.State(voc, seed=0)
+    out = spa.State(voc, seed=0)
+    c_inp = spa.State(voc, seed=0)
     
     
-    nengo.Connection(inp.output, data_stack.input)
-    nengo.Connection(data_stack.output, out.input)
-    nengo.Connection(c_inp.output, ctrl_flow_stack.input)
+    nengo.Connection(inp.output, data_stack.input, seed=0)
+    nengo.Connection(data_stack.output, out.input, seed=0)
+    nengo.Connection(c_inp.output, ctrl_flow_stack.input, seed=0)
 
-    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", vocab=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict)
+    control_unit = ControlUnit(d=d, theta=theta, items=test_program, label="ControlUnit Network", vocab=voc, assoc_memory=assoc, circuits=wds_circuits.circuits_dict, seed=0)
 
     
     nengo.Connection(control_unit.to_data_stack, inp.input)
@@ -1752,7 +1754,7 @@ with model:
     busy_node = nengo.Node(output=make_busy_signal(), size_in=2, size_out=1, label="busy_node")
     nengo.Connection(busy_node, control_unit.word_busy)
 
-    dispatcher = Dispatcher(wds_circuits, busy_node, vocab=voc)
+    dispatcher = Dispatcher(wds_circuits, busy_node, vocab=voc, seed=0)
 
     nengo.Connection(control_unit.to_dispatcher, dispatcher.input)
     nengo.Connection(control_unit.to_dispatcher, wds_circuits.user_func_circuit.func_key)
@@ -1772,13 +1774,13 @@ with model:
 #    function_decoder = spa.State(voc)
 #    nengo.Connection(wds_circuits.user_func_circuit.retrieved_func, function_decoder.input)
 
-    test_call_stack_out = spa.State(voc)
+    test_call_stack_out = spa.State(voc, seed=0)
     nengo.Connection(call_stack.output, test_call_stack_out.input)
 
-    test_call_stack_in = spa.State(voc)
+    test_call_stack_in = spa.State(voc, seed=0)
     nengo.Connection(call_stack.input, test_call_stack_in.input)
 
-    test_func_ctrl = spa.State(voc)
+    test_func_ctrl = spa.State(voc, seed=0)
     nengo.Connection(control_unit.func_ctrl[:d], test_func_ctrl.input)
         
     # voc_items = ["R_LEFT", "R_RIGHT", "R_PHI", "T_NIL",
