@@ -9,6 +9,8 @@ from collections import UserDict
 from graft import load_embeddings, embed
 
 LOAD_EMBEDDINGS_FROM_MEMORY = False
+INTEGER_ENCODING_SCHEME = "list"
+INTEGER_WIDTH = 8
 theta = 0.3     # threshold parameter
 d = 256         # dimensionality
 t_stack = 0.2
@@ -1224,7 +1226,7 @@ if __name__ == "__main__":
             embeddings_path = f"./data/fruit_program_dim{d}"
             test_program = load_embeddings(embeddings_path, voc)
         else:
-            test_program = embed("APPLE 1 1 + 1 + 1 +", voc)
+            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
 
 
         # holo = sum([voc[c].v for c in circuits_dict.keys()])

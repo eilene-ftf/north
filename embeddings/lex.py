@@ -153,6 +153,7 @@ class WordType(Enum):
     + `]`:      `F_RIGHT_BRACKET`
 
     Identifiers are alphanumeric strings. Numbers are for numeric digits.
+    `SSP_X`, `SSP_Y`, and `SSP_Z` denote the three axis.
     A special marker `EOF` is used to denote the end of the file.
     """
 
@@ -289,6 +290,9 @@ class WordType(Enum):
     F_BRACKET_TICK = auto()
     F_BRACKET_CHAR = auto()
     F_RIGHT_BRACKET = auto()
+    SSP_X = auto()
+    SSP_Y = auto()
+    SSP_Z = auto()
     IDENT = auto()
     NUMBER = auto()
     EOF = auto()
@@ -482,3 +486,5 @@ def lex(src: str) -> list[Word]:
             word_rec.append(Word(WordType.IDENT, word))
     word_rec.append(Word(WordType.EOF, "<EOF>"))
     return word_rec
+
+
