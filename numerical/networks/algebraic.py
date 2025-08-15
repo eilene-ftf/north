@@ -12,6 +12,7 @@ from embeddings import random
 
 from ..bitstring import Bitstring
 
+__all__ = ["BXor", "BAnd", "BNot", "BOr"]
 
 class BXor(spa.Network):
     """Algebraic implementation of bit-wise XOR.
@@ -142,6 +143,11 @@ class BAnd(spa.Network):
 
     Example:
     ```python
+    import nengo
+    import nengo_spa as spa
+    import numerical as bit
+    from numerical.networks.algebraic import BAnd
+
     dim = 256
     vocab_keys = ["S_0", "S_1", "S_2", "S_3", "S_4", "S_5", "S_6", "S_7"]
     vocab = spa.Vocabulary(dim)
@@ -371,6 +377,11 @@ class BNot(spa.Network):
 
     Examples:
     ```python
+    import nengo
+    import nengo_spa as spa
+    import numerical as bit
+    from numerical.networks.algebraic import BNot
+
     dim = 256
     vocab_keys = ["S_0", "S_1", "S_2", "S_3", "S_4", "S_5", "S_6", "S_7"]
     vocab = spa.Vocabulary(dim)
