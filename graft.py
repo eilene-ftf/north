@@ -4,6 +4,7 @@ pointer system.
 
 import pathlib
 import sys
+import typing
 
 import nengo_spa as spa
 import numpy as np
@@ -90,7 +91,12 @@ def load_embeddings(
     return spa.SemanticPointer(embeddings, vocab=vocab, name=embeddings_name)
 
 
-def embed(src: str, vocab: spa.Vocabulary) -> spa.SemanticPointer:
+def embed(
+    src: str,
+    vocab: spa.Vocabulary,
+    integer_encoding_scheme: typing.Literal["list", "binary"],
+    width: int = 8,
+) -> spa.SemanticPointer:
     """Embed ``src`` into a ``spa.SemanticPointer``.
 
     Args:
@@ -101,7 +107,7 @@ def embed(src: str, vocab: spa.Vocabulary) -> spa.SemanticPointer:
         The semantic pointer embedding of the source file.
     """
     words = lex(src)
-    
+
     codebook = Codebook([], dim=vocab.dimensions)
     assoc_mem = HeteroAssoc(vocab.dimensions)
     cleanup_mem = AutoAssoc(vocab.dimensions)
@@ -109,10 +115,14 @@ def embed(src: str, vocab: spa.Vocabulary) -> spa.SemanticPointer:
         cleanup_mem.write(value)
 
     enc_env = EncodingEnvironment(codebook, assoc_mem, cleanup_mem)
-    embeddings = encode(words, enc_env)
+    if integer_encoding_scheme == "list":
+        embeddings = encode(words, enc_env)
+    else:
+        embeddings = encode(words, enc_env, "binary", vocab, width)
 
     for name, value in codebook.items():
-        vocab.add(name, value)
+        if name not in vocab:
+            vocab.add(name, value)
 
     embeddings_name = get_name(embeddings, enc_env.codebook)
     return spa.SemanticPointer(embeddings, vocab=vocab, name=embeddings_name)

@@ -9,10 +9,13 @@ from collections import UserDict
 from dataclasses import dataclass
 from pathlib import Path
 
+import nengo_spa as spa
 import numpy as np
 import numpy.fft as fft
 
 from .lex import Word, WordType, wordtype2str
+
+import numerical as num
 
 __all__ = [
     "HeteroAssoc",
@@ -503,12 +506,60 @@ def encode_number(cont: str, enc_env: EncodingEnvironment) -> np.ndarray:
     return num
 
 
-def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
+def encode_binary_number(
+    cont: str, enc_env: EncodingEnvironment, vocab: spa.Vocabulary, width: int
+) -> np.ndarray:
+    """Encode an integer using ``Bitstrings``.
+
+    Args:
+        cont str:
+            The contents of the lexed item.
+        enc_env EncodingEnvironment:
+            The encoding environment.
+        vocab spa.Vocabulary:
+            The vocabulary to use in encoding
+        width int:
+            The ``Bitstring`` width.
+
+    Returns:
+        Modifies `enc_env` and `vocab` in-place. Returns the encoded
+        form of `cont` using `Bitstring`.
+    """
+
+    parsed = int(cont)
+    bs = num.encode(parsed, vocab, width=width)
+
+    for i in range(width):
+        if f"S_{i}" not in enc_env.codebook:
+            enc_env.codebook[f"S_{i}"] = vocab[f"S_{i}"].v
+
+    if "BIT_0" not in enc_env.codebook:
+        enc_env.codebook["BIT_0"] = vocab["BIT_0"]
+    if "BIT_1" not in enc_env.codebook:
+        enc_env.codebook["BIT_1"] = vocab["BIT_1"]
+
+    if bs.name not in enc_env.codebook:
+        enc_env.codebook[bs.name] = bs.v
+
+    return bs.v
+
+
+def encode(
+    words: list[Word],
+    enc_env: EncodingEnvironment,
+    integer_encoding_scheme: typing.Literal["binary", "list"] = "list",
+    vocab: typing.Optional[spa.Vocabulary] = None,
+    width: int = 8,
+) -> np.ndarray:
     """Encode a list of ``Word``'s into a high-dimensional vector.
 
     Args:
         words list[Word]: The list of words to encode.
         enc_env EncodingEnvironment: The encoding environment dataclass.
+        vocab typing.Optional[spa.Vocabulary]:
+            Optional vocabulary used in encoding binary strings.
+        width int:
+            Optional width used in encoding binary strings. Defaults to ``8``.
 
     Returns:
         The list of words encoded as a linked-list.
@@ -520,7 +571,14 @@ def encode(words: list[Word], enc_env: EncodingEnvironment) -> np.ndarray:
     for word in words:
         wordtype = word.tag
         if wordtype == WordType.NUMBER:
-            encoded_words.append(encode_number(word.cont, enc_env))
+            if integer_encoding_scheme == "list":
+                encoded_words.append(encode_number(word.cont, enc_env))
+            elif integer_encoding_scheme == "binary" and vocab is None:
+                raise ValueError("Vocabulary cannot be NONE if you do binary encoding")
+            else:
+                encoded_words.append(
+                    encode_binary_number(word.cont, enc_env, vocab, width)
+                )
         elif wordtype == WordType.IDENT:
             cont = word.cont
             if cont not in enc_env.codebook:

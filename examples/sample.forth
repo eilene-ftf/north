@@ -18,7 +18,7 @@ VARIABLE ID
    DUP DUP 10 */ 1000 */  355 339 */  /TAN /TAN
    DENSITY @ 200 */  ." = " . ." tons of "  .SUBSTANCE ;
 
-   " cement "           131        700  MATERIAL CEMENT
+   " cement "           -131        700  MATERIAL CEMENT
    " loose gravel "      93        649  MATERIAL LOOSE-GRAVEL
    " packed gravel "    100        700  MATERIAL PACKED-GRAVEL
    " dry sand "          90        754  MATERIAL DRY-SAND

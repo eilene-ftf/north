@@ -7,9 +7,30 @@ import functools
 import nengo_spa as spa  # type: ignore
 import numpy as np
 
-from embeddings import random
 
 __all__ = ["Bitstring", "encode"]
+
+
+def random(
+    num_vectors: int, dim: int, dtype=float, rng=np.random.default_rng()
+) -> np.ndarray:
+    """Create randomly sampled matrix of ``(num_vectors, dim)``.
+
+    Args:
+        num_vectors int: The number of vectors to sample.
+        dim: int: The dimensionality of the vectors.
+        dtype float: Optional, defaults to ``float``.
+        rng: Optional, defaults to ``np.random.default_rng()``.
+
+    Returns:
+        ``(num_vectors, dim)`` randomly sampled matrix from from the normalized
+        ``np.random.normal(dim, sd=1/np.sqrt(dim)``.
+    """
+    sd = 1.0 / np.sqrt(dim)
+    vs = rng.normal(scale=sd, size=(num_vectors, dim)).astype(dtype)
+    norms = np.linalg.vector_norm(vs, axis=1, keepdims=True)
+    vs /= norms
+    return vs
 
 
 class Bitstring(spa.SemanticPointer):
@@ -238,7 +259,8 @@ def encode(
 
     brep_name = f"BINARY_{n}"
     sp = Bitstring(brep, vocab=vocabulary, name=brep_name, width=width)
-    vocabulary.add(brep_name, sp)
+    if brep_name not in vocabulary:
+        vocabulary.add(brep_name, sp)
     return sp
 
 

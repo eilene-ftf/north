@@ -1,7 +1,7 @@
-import nengo_spa as spa
+import nengo_spa as spa  # type: ignore
+import numpy as np  # type: ignore
 import pytest
 
-import numpy as np
 import numerical as num
 
 

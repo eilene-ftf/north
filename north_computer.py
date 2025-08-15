@@ -9,6 +9,8 @@ from collections import UserDict
 from graft import load_embeddings, embed
 
 LOAD_EMBEDDINGS_FROM_MEMORY = False
+INTEGER_ENCODING_SCHEME = "list"
+INTEGER_WIDTH = 8
 theta = 0.3     # threshold parameter
 stability_threshold = 0.7 # thresholds stability of R_state
 d = 256         # dimensionality
@@ -1651,6 +1653,15 @@ with model:
     #         'I1', 'I2', 'I3', 
     #         'O1', 'O2', 'O3']
     #        )
+
+    if LOAD_EMBEDDINGS_FROM_MEMORY:
+        embeddings_path = f"./data/fruit_program_dim{d}"
+        test_program = load_embeddings(embeddings_path, voc)
+    else:
+        if INTEGER_ENCODING_SCHEME == "list":
+            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME)
+        elif INTEGER_ENCODING_SCHEME == "binary":
+            test_program = embed("1", voc, INTEGER_ENCODING_SCHEME, INTEGER_WIDTH)
 
     registers = RegisterBank(
             ['R1', 'R2', 'R3', 'R4', 'R5', 
