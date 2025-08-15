@@ -1556,12 +1556,18 @@ class PutGate(spa.Network):
         with self:
             nengo.Connection(self.stack.output, self.input_value)
             value_to_put = spa.State(self.vocab, label = "value") 
-            nengo.Connection(self.input_value, value_to_put.input)
-
+            self.inp = spa.SemanticPointer=(np.zeros(d))
+            if isinstance(self.stack.stack, list):
+                if not self.stack.stack:
+                    print("error: cannot pop from empty stack")
+                else:
+                    self.inp = spa.SemanticPointer(self.stack.stack.pop())
 
             switch_put = spa.ActionSelection()
             go = SemanticNode([1], label="GO!")
             wait = SemanticNode(size_in=1, label="wait")
+            nengo.Connection(self.inp, value_to_put.input)
+
 
             with switch_put:
                 spa.ifmax(theta, RoutedConnection(go, wait))
@@ -1569,15 +1575,11 @@ class PutGate(spa.Network):
                     print(self.addresses[reg_name])
                     spa.ifmax(
                         self.address_to_put @ vocab[reg_name],
-                        value_to_put >> self.addresses[reg_name].register.cell
+                        self.inp >> self.addresses[reg_name].register.cell
                         #RoutedConnection(value.output, self.addresses[reg_name].register.input) 
                         #and RoutedConnection(command, reg.sigin, )
                         )
-            if isinstance(self.stack.stack, list):
-                if not self.stack.stack:
-                    pass
-                else:
-                    self.stack.stack.pop()
+
 
 
 
