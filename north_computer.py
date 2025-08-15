@@ -149,8 +149,13 @@ def cons(h, t, vocab=voc, assoc_memory=assoc, numeric=False):
         new_name = ''
         if numeric:
             old_name = h.name.replace("Pointer_to_", "").replace("NUMBER_", "")
+            if old_name.isnumeric():
+                old_val = int(old_name)
+            else:
+                old_val = count_list_depth(h, vocab=vocab)
+
             if old_name == "T_NIL": old_name = "0"
-            new_name = f'NUMBER_{int(old_name) + 1}'
+            new_name = f'NUMBER_{old_val + 1}'
         else:
             new_name = f'LS_{h.name.replace("Pointer_to_", "")}_{t.name.replace("Pointer_to_", "")}'
         return spa.SemanticPointer(new_sp.normalized().v, name=new_name)
@@ -1419,13 +1424,20 @@ class ThenCircuit(WordCircuit):
                 nengo.Connection(self.input, then_processor)
                 nengo.Connection(then_processor, self.output)
 
+def make_peano_number(n, vocab):
+    num = vocab['T_NIL']
+    for _ in range(n):
+        num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
+    vocab.add(num.name, num)
+    return num
+
 # Helper functions for list-based arithmetic
 def add_list_numbers(a, b, vocab=voc):
     """Add two list-encoded numbers"""
     # Count depth of nested lists for a and b because for some reason, we utilize the fucking Peano construction
     depth_a = count_list_depth(a, vocab)
     #depth_b = count_list_depth(b, vocab)
-    
+
     # Create result with depth = depth_a + depth_b again, because God cursed us with Peano... AAAGHHHHHHHHH
     result = b  # Start with b
     for i in range(depth_a):
@@ -1640,11 +1652,11 @@ with model:
     #         'O1', 'O2', 'O3']
     #        )
 
-        registers = RegisterBank(
-                ['R1', 'R2', 'R3', 'R4', 'R5', 
-                'I1', 'I2', 'I3', 
-                'O1', 'O2', 'O3']
-                )
+    registers = RegisterBank(
+            ['R1', 'R2', 'R3', 'R4', 'R5', 
+            'I1', 'I2', 'I3', 
+            'O1', 'O2', 'O3']
+            )
 
     data_stack = SimpleStack(label="data_stack")
     ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
@@ -1667,7 +1679,7 @@ with model:
             "F_THEN":    ThenCircuit(ctrl_flow_stack.stack, vocab=voc, label="THEN Circuit"),
         }
 
-        voc.populate('; '.join(list(wds_circuits.circuits_dict.keys())))
+        voc.populate('; '.join([k for k in wds_circuits.circuits_dict.keys() if k not in voc]))
         
         fruits = ['APPLE', 'BANANA', 'CHERRY', 'DURIAN', 'ELDERBERRY', 'FIG', 'GUAVA', 'HYUGANATSU', 
                   'IMBE', 'JACKFRUIT', 'KUMQUAT', 'LYCHEE', 'MANGO', 'NECTARINE', 'ORANGE', 'PINEAPPLE', 
@@ -1701,12 +1713,6 @@ with model:
     #print(count_list_depth(result, voc))  # Should print 5
     
     test_program = make_list(["CHERRY", "FRUITSWAP", "CHERRY", "MANGO"], vocab=voc)
-
-    if LOAD_EMBEDDINGS_FROM_MEMORY:
-        embeddings_path = f"./data/fruit_program_dim{d}"
-        test_program = load_embeddings(embeddings_path, voc)
-    else:
-        test_program = embed("APPLE 1 1 + 1 + 1 +", voc)
 
     
     #voc.add(test_program.name, test_program.v)
@@ -1781,12 +1787,6 @@ with model:
     
 
     
-    # def make_peano_number(n, vocab):
-    #     num = vocab['T_NIL']
-    #     for _ in range(n):
-    #         num = cons(num, vocab['T_NIL'], vocab=vocab, numeric='True')
-    #     vocab.add(num.name, num)
-    #     return num
     
     # num1 = make_peano_number(1, voc)
     # num2 = make_peano_number(2, voc)
