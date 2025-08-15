@@ -14,8 +14,8 @@ t_delay = 0.5 # delay for func_ctrl to wait before populating tail
 t_stack = 0.2
 t_buffer = 0.25 # extra time padding so the function controller doesn't race the function return
 t_ctrl = 0.25
-t_busy = 1.25
-t_done = 1.75
+t_busy = 0.5
+t_done = 0.75
 clock_tick = 2.0
 
 assert t_ctrl < t_busy and t_busy < t_done
@@ -222,7 +222,7 @@ class ControlUnit(spa.Network):
             output_state = spa.State(self.vocab, label="output_register")
             
             self.clock_trigger = nengo.Node(
-                lambda t: 1.0 if (t % 2) < 0.1 else 0.0, 
+                lambda t: 1.0 if (t % clock_tick) < 0.1 else 0.0, 
                 label="clock_trigger"
             )
             
@@ -839,7 +839,7 @@ def create_modification_node(vocab, circuits, theta=0.2):
         to_stack = vocab['Zero'].v
         to_dispatcher = vocab['Zero'].v
 
-        if resume and R_flag:
+        if (resume or t < 0.1) and R_flag:
             R_flag = False
             stopwatch = 0
         
