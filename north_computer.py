@@ -736,6 +736,7 @@ class Dispatcher(spa.Network):
                 spa.ifmax(hdot_ptr @ one, RoutedConnection(go, circuits.user_func_circuit))
         
         for keyword, circuit in circuits.circuits_dict.items():
+            print(circuit)
             nengo.Connection(circuit.input, busy_node[0])
             nengo.Connection(circuit.output, busy_node[1])
 
@@ -1080,12 +1081,19 @@ class PeepCircuit(WordCircuit):
     """
     def __init__(self, stack, memory_registers, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.stack = stack
-        self.memory_registers = memory_registers
-        self.vocab = vocab
-
+        
         if isinstance(stack, list):
             with self:
+                self.stack = stack
+                self.memory_registers = memory_registers
+                self.vocab = vocab
+                self.temp = vocab['S_CODE_ERR_STACKEMPTY'].v
+                self.big_dog = np.zeros(d)
+                self.to_rGate = spa.SemanticPointer(np.append(self.temp, self.big_dog))
+                self.reg_gate = spa.State(d, label = "reg_gate")
+                self.com_gate = spa.State(d, label = "com_gate")
+                self.wait_gate = nengo.Node(size_in=1, label = "wait_gate")
+
                 def make_peep(stack, registers, vocab):
                     state = 0
                     stopwatch = 0
@@ -1094,29 +1102,38 @@ class PeepCircuit(WordCircuit):
                         go = x[0]
                         if state == 0 and go > theta and stopwatch == 0:
                             if stack:
+                                minone = spa.SemanticPointer(almost_zero_vector(-1), vocab=vocab, name="one")
                                 addr = stack.pop()
                                 # Use cleanup to find closest register address
                                 reg_name = cleanup(addr, vocab).name
-                                if reg_name in registers.bindings:
-                                    value = registers.bindings[reg_name].output
+                                if reg_name in memory_registers.bindings.keys():
+                                    #value = memory_registers.bindings[reg_name].output
                                     # Convert nengo output to semantic pointer
-                                    value_sp = spa.SemanticPointer(value)
-                                    stack.append(value_sp)
+                                    self.to_rGate = spa.SemanticPointer(np.concatenate((addr,minone.v)))
                                 else:
                                     # Default to NIL if address not found
                                     stack.append(vocab['T_NIL'])
                                 print([p.name for p in stack])
                             stopwatch = t
+                            print (self.wait_gate)
                         elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                        elif self.wait_gate == 1:
+                            state = 1
+                        elif state == 1 and go < theta and self.wait_gate == 0 and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
-                        return state
+                        return np.concatenate((self.to_rGate.v,[state]))
                     return peep
                 peeper = nengo.Node(size_in=1, output=make_peep(self.stack, self.memory_registers, self.vocab))
+                # signal to go or wait input here
                 nengo.Connection(self.input, peeper)
-                nengo.Connection(peeper, self.output)
+                # signal to go out to give busy signal to dispatcher
+                nengo.Connection(peeper[-1], self.output)
+            # gate address to RegisterGate
+            nengo.Connection(peeper[:d], self.reg_gate.input)
+            # command code to RegisterGate
+            nengo.Connection(peeper[d:d*2], self.com_gate.input)
 
 class PutCircuit(WordCircuit):
     """! (value addr -- )
@@ -1124,12 +1141,20 @@ class PutCircuit(WordCircuit):
     """
     def __init__(self, stack, memory_registers, vocab=voc, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.stack = stack
-        self.memory_registers = memory_registers
-        self.vocab = vocab
-
+        
+        
         if isinstance(stack, list):
             with self:
+                self.stack = stack
+                self.memory_registers = memory_registers
+                self.vocab = vocab
+                self.temp = vocab['S_CODE_ERR_STACKEMPTY'].v
+                self.big_dog = np.zeros(d)
+                self.to_rGate = spa.SemanticPointer(np.append(self.temp, self.big_dog))
+                self.reg_gate = spa.State(d)
+                self.com_gate = spa.State(d)
+                self.wait_gate = nengo.Node(size_in = 1, label = "wait_gate")
+
                 def make_put(stack, memory_registers, vocab):
                     state = 0
                     stopwatch = 0
@@ -1138,26 +1163,36 @@ class PutCircuit(WordCircuit):
                         go = x[0]
                         if state == 0 and go > theta and stopwatch == 0:
                             if len(stack) >= 2:
+                                one = spa.SemanticPointer(almost_zero_vector(1), vocab=vocab, name="one")
                                 addr = stack.pop()  # Address (top)
-                                value = stack.pop()  # Value
+                                #value = stack.pop()  # Value
                                 # Use cleanup to find closest register address
+                                print (memory_registers.bindings.keys())
                                 reg_name = cleanup(addr, vocab).name
-                                if reg_name in registers.bindings:
+                                if reg_name in memory_registers.bindings.keys():
                                     # Store value in register (this is simplified)
                                     # In practice, you'd need to handle nengo connections
-                                    registers.bindings[reg_name].input = value.v
+                                    self.to_rGate = spa.SemanticPointer(np.concatenate((addr.v,one.v)))
                                 print([p.name for p in stack])
                             stopwatch = t
                         elif state == 0 and go > theta and t > stopwatch + t_busy:
                             state = 1
-                        elif state == 1 and go < theta and t > stopwatch + t_done:
+                        elif self.wait_gate == 1:
+                            print (self.wait_gate)
+                            state = 1
+                        elif state == 1 and go < theta and self.wait_gate == 0 and t > stopwatch + t_done:
                             state = 0
                             stopwatch = 0
-                        return state
+                            self.to_rGate = spa.SemanticPointer(np.append(self.temp, np.zeros(d)))
+                        return np.concatenate((self.to_rGate.v,[state]))
                     return put
                 putter = nengo.Node(size_in=1, output=make_put(self.stack, self.memory_registers, self.vocab))
                 nengo.Connection(self.input, putter)
-                nengo.Connection(putter, self.output)
+                nengo.Connection(putter[-1], self.output)
+            nengo.Connection(putter[:d], self.reg_gate.input)
+            nengo.Connection(putter[d:d*2], self.com_gate.input)
+                
+                
 
 class FuncCircuit(WordCircuit):
     """: Start word definition
@@ -1522,101 +1557,117 @@ class UserFuncCircuit(WordCircuit):
 class PeepGate(spa.Network):
     def __init__(self, registers, stack, vocab=voc, label="Peep Gate", *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.to_stack = spa.State(vocab, label="to_stack")
         self.stack = stack
-        self.address = spa.State(vocab, label="address")
-        self.sigout = nengo.Node(label="sigout")
         self.addresses = registers.bindings
 
+        self.sigout = nengo.Node(label="sigout")
+        
         with self:
+            self.to_stack = spa.State(vocab, label="to_stack")
             go = SemanticNode([1], label="GO!")
             wait = SemanticNode(size_in=1, label="wait")
-
+            self.address = spa.State(vocab, label="address")
             switch_peep = spa.ActionSelection() 
             with switch_peep:
                 spa.ifmax(theta, RoutedConnection(go, wait))
                 for reg_name in self.addresses:
                     spa.ifmax(
-                            self.address @ vocab[reg_name],
-                            self.addresses[reg_name].register.cell >> self.to_stack 
-                            #RoutedConnection(self.addresses[reg_name].register.cell, stack.input) 
-                            #and RoutedConnection(command, reg.sigout)
-                            )
-        nengo.Connection(self.to_stack.output, self.stack.input)
+                        self.address @ vocab[reg_name],
+                        self.addresses[reg_name].register.cell >> self.to_stack)
+            nengo.Connection(self.to_stack.output, self.stack.input)
 
 class PutGate(spa.Network):
-    def __init__(self, registers, stack, vocab= voc, label = "Put Gate", *args, **kwargs):
+    def __init__(self, registers, data_stack, vocab= voc, label = "Put Gate", *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.vocab = vocab
-        self.address_to_put = spa.State(self.vocab, label = 'address')
-        self.input_value = SemanticNode(size_in=d)
-        self.stack = stack
+        self.stack = data_stack
         #self.input_address = SemanticNode(size_in=d)
         self.addresses = registers.bindings
+        
         with self:
-            nengo.Connection(self.stack.output, self.input_value)
+            self.address_to_put = spa.State(self.vocab, label = 'address')
+            
             value_to_put = spa.State(self.vocab, label = "value") 
-            self.inp = spa.SemanticPointer=(np.zeros(d))
-            if isinstance(self.stack.stack, list):
-                if not self.stack.stack:
-                    print("error: cannot pop from empty stack")
-                else:
-                    self.inp = spa.SemanticPointer(self.stack.stack.pop())
+            nengo.Connection(self.stack.output, value_to_put.input)
+
+            #self.input_value = SemanticNode(size_in=d, label = "puGate_in")
+            #nengo.Connection(self.stack.output, self.input_value)
 
             switch_put = spa.ActionSelection()
             go = SemanticNode([1], label="GO!")
             wait = SemanticNode(size_in=1, label="wait")
-            nengo.Connection(self.inp, value_to_put.input)
-
-
+            #print(self.inp.v)
+            #inpy = spa.Transcode(self.inp, output_vocab = d)
+            #nengo.Connection(inpy, value_to_put.input)
             with switch_put:
                 spa.ifmax(theta, RoutedConnection(go, wait))
                 for reg_name in self.addresses:
-                    print(self.addresses[reg_name])
+                    #print(self.addresses[reg_name])
                     spa.ifmax(
                         self.address_to_put @ vocab[reg_name],
-                        self.inp >> self.addresses[reg_name].register.cell
-                        #RoutedConnection(value.output, self.addresses[reg_name].register.input) 
-                        #and RoutedConnection(command, reg.sigin, )
-                        )
-
-
-
-
-
+                        value_to_put >> self.addresses[reg_name].register.cell)
 
 class RegisterGate(spa.Network):
-    def __init__(self, registers, stack, label="Register Gate", vocab=voc, *args, **kwargs):
+    def __init__(self, registers, data_stack, circuits, label="Register Gate", vocab=voc, *args, **kwargs):
         super().__init__(label=label)
-        self.input = SemanticNode(size_in = d + 1)
-        self.sigout = nengo.Node(label="sigout")
+        #self.input = SemanticNode(size_in = d + 1, label = "reg_in")
+        
+        self.circuits = circuits
+        
         # route value, signal in please read value, and route sigout back to put network(straight to output of put network) -> change some stuff to semantic pointers 
         #will need to create bank before gate 
+        #read wds_dictionary -> to retrieve peep and put circuit for connection
         with self:
+            self.sigout = nengo.Node(label="sigout")
             address = spa.State(vocab, label="address")
-            command = spa.State(1, subdimensions=1, label = "command")
+            command = spa.State(vocab, d, label = "command")
             
-            nengo.Connection(self.input[:d], address.input)
+            #nengo.Connection(self.input[:d], address.input)
             #nengo.Connection(stack.output, value.input)
             #nengo.Connection(self.input[d:d*2], value.input)
-            nengo.Connection(self.input[-1], command.input)
+            #nengo.Connection(self.input[-1], command.input)
+            
 
                         
             # 1 = put, -1 = peep
-            one = spa.SemanticPointer([1], name="one")
-            minone = spa.SemanticPointer([-1], name = 'minone')
+            one = spa.SemanticPointer(almost_zero_vector(1), vocab = vocab, name="one")
+            minone = spa.SemanticPointer(almost_zero_vector(-1), vocab = vocab, name = 'minone')
 
             go = SemanticNode([1], label="GO!")
             wait = SemanticNode(size_in=1, label="wait")
             #sig_out = [0] #send sigout back to calling func_circ
-            peep_gate = PeepGate(registers, stack, vocab)
-            put_gate = PutGate(registers, stack, vocab)
-
+            peep_gate = PeepGate(registers, data_stack, vocab)
+            put_gate = PutGate(registers, data_stack, vocab)
+            def busy_bee():
+                def busy(t, x):
+                    if x[0] == [1] or x[0] == [-1]:
+                        return 1
+                    else:
+                        return 0
+                return busy
+            busy_node = nengo.Node(size_in = d, size_out=1, label="busy", output = busy_bee())
+            nengo.Connection(command.input, busy_node)
+            
+            for key, circuit in circuits.circuits_dict.items():
+                if vocab[key] @ vocab["F_PEEP"] > 1 - theta or vocab[key] @ vocab["F_PUT"] > 1 - theta:
+                    nengo.Connection(circuit.reg_gate.output, address.input)
+                    nengo.Connection(circuit.com_gate.output, command.input)
+                    if vocab[key] @ vocab["F_PEEP"] > 1 - theta:
+                        self.peepCircuitWait = circuit.wait_gate
+                    if vocab[key] @ vocab["F_PUT"] > 1 - theta:
+                        self.putCircuitWait = circuit.wait_gate
+                    #nengo.Connection(busy_node, circuit.wait_gate)
+                else:
+                    pass
             switch = spa.ActionSelection()
             with switch:
                 spa.ifmax(theta, RoutedConnection(go, wait))
-                spa.ifmax(command @ one, address >> put_gate.address_to_put)
-                spa.ifmax(command @ minone, address >> peep_gate.address)
+                spa.ifmax(command @ one, 
+                          (address >> put_gate.address_to_put and
+                           RoutedConnection(busy_node, self.putCircuitWait)))
+                spa.ifmax(command @ minone, 
+                          (address >> peep_gate.address_to_put and
+                           RoutedConnection(busy_node, self.peepCircuitWait)))
 
 
             #nengo.Connection(command.output, self.sigout)
@@ -1635,15 +1686,25 @@ class Cacheier(spa.Network):
                     register.cell = spa.State(self.vocab, label="register.cell")
                 else:
                     register.cell = spa.State(size_in = d, label="register.cell")
-                self.register.input = nengo.Node(size_in=d)
-                self.register.output = nengo.Node(size_in=d)
-                register.sigin = nengo.Node(size_in=1)
-                register.sigout = nengo.Node(size_in=1)
+                self.register.input = nengo.Node(size_in=d, label = "register_in")
+                self.register.output = nengo.Node(size_in=d, label = "register_out")
+                register.sigin = nengo.Node(size_in=1, label = "reg_sigin")
+                register.sigout = nengo.Node(size_in=1, label = "reg_sigout")
 
                 nengo.Connection(register.input, register.cell.input)
                 nengo.Connection(register.cell.output, register.output)
             
-
+def almost_zero_vector(value, dim = d):
+    v = 1
+    vector = np.zeros(d)
+    if value == 1:
+        vector[0] = 1
+    if value == -1:
+        vector[0] = -1
+    while v < (dim-1):
+        vector[v]=0
+        v += 1
+    return vector
 
 
 class RegisterBank(spa.Network):
@@ -1661,7 +1722,8 @@ class RegisterBank(spa.Network):
                 #vocab.populate(";".join(name))
                 self.bindings[name] = Cacheier(name)
                 setattr(self, name, self.bindings[name])
-        print ([value.register.input for value in self.bindings.values()])
+        #print(self.bindings.keys())
+        #print ([value.register.input for value in self.bindings.values()])
         #print (self.bindings)
     
 model = spa.Network()
@@ -1711,8 +1773,6 @@ with model:
         return dummy_circuit
     data_stack = SimpleStack(label="data_stack")
     ctrl_flow_stack = SimpleStack(label="ctrl_flow_stack")
-
-    register_gate = RegisterGate(registers, data_stack)
         
     wds_circuits = spa.Network("Words Circuits")
     with wds_circuits:
@@ -1747,9 +1807,10 @@ with model:
 
         wds_circuits.user_func_circuit = UserFuncCircuit(user_table=table)
 
-        print(wds_circuits.user_func_circuit.table)
+        #print(wds_circuits.user_func_circuit.table)
         print([v.name for v in wds_circuits.user_func_circuit.bindings.values()])
-
+    
+    register_gate = RegisterGate(registers, data_stack, wds_circuits)
     call_stack = SimpleStack(label="call_stack")
     return_stack = SimpleStack(label="return_stack")
 
@@ -1769,8 +1830,8 @@ with model:
     result = add_list_numbers(two, three, voc)
     #print(count_list_depth(result, voc))  # Should print 5
     
-    test_program = make_list(["CHERRY", "FRUITSWAP", "CHERRY", "MANGO"], vocab=voc)
-
+    test_program = make_list(["CHERRY", "R_1", "F_PUT"], vocab=voc)
+    #test_program = make_list(["FRUITSWAP"],vocab=voc)
     
     #voc.add(test_program.name, test_program.v)
     
